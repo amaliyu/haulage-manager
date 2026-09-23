@@ -8,3 +8,4 @@ dist
 *.log
 .vercel
 node_modules/.tmp
+scripts/ui-check/out

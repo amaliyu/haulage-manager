@@ -44,13 +44,18 @@ Other scripts:
 - `npm run build` runs the type-check and production build into `dist/`.
 - `npm run lint` runs ESLint. It also blocks importing Supabase outside `src/services` and `src/lib`.
 - `npm run preview` serves the production build.
+- `npm run ui:check` builds the app against a mocked Supabase and renders every screen at 360px and 1280px, in light and dark mode. It fails on horizontal overflow, phone tap targets under 48px, pure-black text or JavaScript errors. Screenshots go to `scripts/ui-check/out/`. Set `PLAYWRIGHT_CHROMIUM_PATH` to use an installed Chromium; otherwise run `npx playwright install chromium` once.
+- `npm run db:test` runs every migration, the seed (twice) and the role-by-role RLS tests on a throwaway **local** Postgres (`PGHOST`/`PGPORT`). It never touches Supabase.
+
+CI (`.github/workflows/ci.yml`) runs `npm ci`, lint, typecheck and build on every pull request.
 
 ## Database setup (run by a human, in this order)
 
-Nothing in this repository applies migrations automatically. In the Supabase dashboard, open **SQL Editor**, paste each file and click **Run**:
+Nothing in this repository applies migrations automatically. In the Supabase dashboard, open **SQL Editor**, paste each file and click **Run**, in this order:
 
 1. `supabase/migrations/20260922000000_step1_schema.sql` creates the tables, constraints, triggers, audit log, numbering functions, role helpers, price-change functions, RLS policies, and the private `trip-photos` storage bucket with its policies.
-2. `supabase/seed.sql` adds the sample data: Koita and Kwali sand sites, four routes to Gwarinpa and Apo/Wuye with current prices, and a diesel price of ₦1,730/L. It is safe to run twice. It adds no customers, trucks or drivers. Delete the sample rows from the app once real data exists.
+2. `supabase/migrations/20260923000000_advisor_fixes.sql` applies the Supabase advisor fixes. Trigger functions can no longer be called as RPCs, `anon` can execute nothing, and it adds covering indexes for the business foreign keys.
+3. `supabase/seed.sql` adds the sample data: Koita and Kwali sand sites, four routes to Gwarinpa and Apo/Wuye with current prices, and a diesel price of ₦1,730/L. It is safe to run twice. It adds no customers, trucks or drivers. Delete the sample rows from the app once real data exists.
 
 If you use the Supabase CLI instead: `supabase link --project-ref <ref>`, then `supabase db push`, then run `seed.sql` in the SQL editor.
 
@@ -58,7 +63,10 @@ If you use the Supabase CLI instead: `supabase link --project-ref <ref>`, then `
 
 In Supabase → Authentication → URL Configuration, set **Site URL** to the deployed app URL. Add `https://<your-domain>/reset-password` (and `http://localhost:5173/reset-password` for local work) to **Redirect URLs** so password-reset emails land on the reset screen.
 
-The app has no public sign-up screen. Turn off "Allow new users to sign up" under Authentication → Providers → Email if you want accounts created only by admins.
+**Required:** only an admin creates users. The app has no sign-up screen, but Supabase accepts sign-ups through its API unless you turn them off:
+
+- Authentication → Sign In / Providers → turn **off** "Allow new users to sign up".
+- Authentication → Sign In / Providers → Email → turn **on** "Prevent use of leaked passwords" (Pro plan and above).
 
 ## Create the first admin
 
@@ -104,10 +112,10 @@ The database enforces these rules with RLS and guard triggers. The UI only hides
 
 ## Database types
 
-`src/types/database.ts` mirrors the migration. It was generated from a local Postgres with the migration applied, using `scripts/gen-types.py`. Once a Supabase project exists, regenerate it after every schema change:
+`src/types/database.ts` is generated from the live project. Regenerate it after every schema change:
 
 ```bash
-npx supabase gen types typescript --project-id <project-ref> --schema public > src/types/database.ts
+npx supabase gen types typescript --project-id iqbhqddilwpeobbiscba --schema public > src/types/database.ts
 ```
 
 ## Project structure
@@ -122,4 +130,6 @@ src/lib                 supabase client, formatters (naira, Africa/Lagos dates),
 src/types               database types
 supabase/migrations     SQL files only, never applied automatically
 supabase/seed.sql       sample master data
+scripts/db-test         local-Postgres RLS test suite and the zero-TEST-rows proof query
+scripts/ui-check        Playwright screen audit (npm run ui:check)
 ```
