@@ -105,7 +105,7 @@ The database enforces these rules with RLS and guard triggers. The UI only hides
 ## Deploy to Vercel
 
 1. Push this repository to GitHub.
-2. In Vercel, click **Add New → Project** and import the repository. The framework preset is Vite: build command `npm run build`, output directory `dist`.
+2. In Vercel, click **Add New → Project** and import the repository. `vercel.json` pins the build (framework Vite, `npm ci`, `npm run build`, output `dist`), so the dashboard's build settings don't matter.
 3. Under **Environment Variables**, add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` for Production and Preview.
 4. Deploy. `vercel.json` rewrites every path to `index.html` so deep links work.
 5. Put the deployed URL into Supabase's Site URL and Redirect URLs, as described in "Auth settings" above.
