@@ -11,18 +11,17 @@ export function tripEconomics(price: PriceInput, litres: number) {
 }
 
 /**
- * A single cost larger than the whole customer price is almost certainly a
- * typing mistake (an extra zero), so the forms refuse it outright. Returns the
- * field to flag, or null.
+ * A typed material or crew cost larger than the whole customer price is almost
+ * certainly a typing mistake (an extra zero), so the forms refuse it outright.
+ * Diesel is not checked here: it follows the pump price, so diesel above the
+ * customer price can be real and goes through the loss confirmation instead.
+ * Returns the field to flag, or null.
  */
-export function costOverPrice(price: PriceInput, litres: number): { field: keyof PriceInput; message: string } | null {
-  const { diesel } = tripEconomics(price, litres)
+export function costOverPrice(price: PriceInput): { field: 'material_cost' | 'crew_cost'; message: string } | null {
   const limit = formatNaira(price.customer_price)
   if (price.material_cost > price.customer_price)
     return { field: 'material_cost', message: `Material cost is more than the customer price (${limit}). Check for an extra zero.` }
   if (price.crew_cost > price.customer_price)
     return { field: 'crew_cost', message: `Crew cost is more than the customer price (${limit}). Check for an extra zero.` }
-  if (diesel > price.customer_price)
-    return { field: 'diesel_price_per_litre', message: `Diesel for this route (${formatNaira(diesel)}) is more than the customer price (${limit}).` }
   return null
 }

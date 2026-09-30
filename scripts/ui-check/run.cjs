@@ -186,6 +186,17 @@ const SCENES = [
       await p.getByRole('button', { name: 'Save at a loss' }).waitFor({ state: 'detached', timeout: 2000 })
       if (saved !== 1) throw new Error(`expected 1 save, got ${saved}`)
     }],
+    // r2: 95 L × ₦1,730 = ₦164,350 diesel alone, above a ₦150,000 price: a loss to confirm, not a block.
+    ['change-price-diesel-loss', '/routes/r2', {}, async (p) => {
+      let saved = 0
+      p.on('request', (r) => { if (r.url().includes('/rpc/change_route_price')) saved++ })
+      await p.getByRole('button', { name: 'Change price' }).click()
+      await p.getByLabel('Customer price per trip').fill('150000')
+      await p.getByRole('button', { name: 'Save new price' }).click()
+      await p.getByText('This price makes a loss of ₦94,350 per trip.').waitFor({ timeout: 2000 })
+      if (await p.getByText('is more than the customer price').count()) throw new Error('diesel was hard-blocked')
+      if (saved) throw new Error('saved before the loss was confirmed')
+    }],
     ['route-new', '/routes/new', {}, async (p) => { await p.getByRole('button', { name: 'Create route' }).click() }],
     ['route-new-loss', '/routes/new', {}, async (p) => {
       await p.getByLabel('Material source').selectOption({ index: 1 })

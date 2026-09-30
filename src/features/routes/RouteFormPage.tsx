@@ -128,7 +128,7 @@ function RouteForm({ route }: { route?: RouteWithCurrent }) {
   const onSubmit = form.handleSubmit(async (v) => {
     if (isNew) {
       const litres = v.diesel_allowance_litres as number
-      const bad = costOverPrice(v, litres)
+      const bad = costOverPrice(v)
       if (bad) {
         form.setError(bad.field, { message: bad.message }, { shouldFocus: true })
         return

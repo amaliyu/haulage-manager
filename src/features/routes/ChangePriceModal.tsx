@@ -75,7 +75,7 @@ export function ChangePriceModal({ open, onClose, route }: { open: boolean; onCl
   const lossConfirming = warnedLoss !== null && preview?.margin === warnedLoss
 
   const onSubmit = form.handleSubmit(async (v) => {
-    const bad = costOverPrice(v, litres)
+    const bad = costOverPrice(v)
     if (bad) {
       form.setError(bad.field, { message: bad.message }, { shouldFocus: true })
       return
