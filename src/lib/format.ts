@@ -24,16 +24,23 @@ export function formatNumber(value: number | null | undefined, unit?: string): s
 const dateParts = new Intl.DateTimeFormat('en-GB', {
   timeZone: LAGOS_TZ,
   day: 'numeric',
-  month: 'short',
+  month: 'numeric',
   year: 'numeric',
   hour: 'numeric',
   minute: '2-digit',
   hour12: true,
 })
 
+// Fixed three-letter months: ICU's en-GB "short" month gives "Sept".
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
 function parts(iso: string) {
   const out: Record<string, string> = {}
   for (const p of dateParts.formatToParts(new Date(iso))) out[p.type] = p.value
+  out.month = MONTHS[Number(out.month) - 1]
+  // Numeric months make en-GB pad the day ("01"); keep "1 Jan".
+  out.day = String(Number(out.day))
+  out.hour = String(Number(out.hour))
   return out
 }
 

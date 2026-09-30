@@ -47,14 +47,14 @@ export function StaffHomePage() {
           to="/routes"
           loading={routes.isLoading}
           value={routes.data?.length ?? '—'}
-          context={unpriced.length ? `${unpriced.length} without a price` : 'All priced'}
+          context={routes.data?.length === 0 ? 'No routes yet' : unpriced.length ? `${unpriced.length} without a price` : 'All priced'}
         />
         <MetricTile
           label="Trucks available"
           to="/trucks"
           loading={trucks.isLoading}
           value={trucks.data ? `${available} of ${trucks.data.length}` : '—'}
-          context={noPhoto ? `${noPhoto} missing a reference photo` : 'All have reference photos'}
+          context={trucks.data?.length === 0 ? 'No trucks yet' : noPhoto ? `${noPhoto} missing a reference photo` : 'All have reference photos'}
         />
         <MetricTile
           label="Active customers"
@@ -68,7 +68,7 @@ export function StaffHomePage() {
           to="/drivers"
           loading={drivers.isLoading}
           value={drivers.data?.length ?? '—'}
-          context={unassigned ? `${unassigned} without a truck` : 'All have a truck'}
+          context={drivers.data?.length === 0 ? 'No drivers yet' : unassigned ? `${unassigned} without a truck` : 'All have a truck'}
         />
       </div>
 

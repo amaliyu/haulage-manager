@@ -40,8 +40,8 @@ const profiles = [
   { id: 'aaaaaaaa-0000-4000-8000-000000000004', full_name: 'Aisha Bello', phone: null, role: 'finance', is_active: false, created_at: iso(5), updated_at: null, created_by: U.admin },
 ]
 const src = [
-  { id: 's1', name: 'Koita sand site', material: 'sharp_sand', area: 'Koita', latitude: null, longitude: null, default_material_cost: 65000, is_active: true, created_at: iso(30), updated_at: null, created_by: null },
-  { id: 's2', name: 'Kwali sand site', material: 'sharp_sand', area: 'Kwali', latitude: 8.8765, longitude: 7.0123, default_material_cost: 65000, is_active: true, created_at: iso(30), updated_at: null, created_by: null },
+  { id: '5a000000-0000-4000-8000-000000000001', name: 'Koita sand site', material: 'sharp_sand', area: 'Koita', latitude: null, longitude: null, default_material_cost: 65000, is_active: true, created_at: iso(30), updated_at: null, created_by: null },
+  { id: '5a000000-0000-4000-8000-000000000002', name: 'Kwali sand site', material: 'sharp_sand', area: 'Kwali', latitude: 8.8765, longitude: 7.0123, default_material_cost: 65000, is_active: true, created_at: iso(30), updated_at: null, created_by: null },
 ]
 const price = (id, route, cp, from, to, note) => ({ id, route_id: route, customer_price: cp, material_cost: 65000, diesel_price_per_litre: 1730, crew_cost: 15000, effective_from: from, effective_to: to, set_by: U.admin, note, created_at: from, updated_at: null, created_by: U.admin, setter: { full_name: 'Muktar Aliyu' } })
 const r1prices = [price('p1', 'r1', 310000, iso(3), null, 'Diesel up'), price('p0', 'r1', 295000, iso(40), iso(3), 'Seed price')]
@@ -159,7 +159,43 @@ const SCENES = [
     ['routes', '/routes', {}],
     ['route-detail', '/routes/r1', {}],
     ['change-price', '/routes/r1', {}, async (p) => { await p.getByRole('button', { name: 'Change price' }).click(); await p.getByLabel('Customer price per trip').fill('325000') }],
+    // r1: 70 L × ₦1,730 + ₦65,000 + ₦15,000 = ₦201,100 costs per trip.
+    ['change-price-typo', '/routes/r1', {}, async (p) => {
+      await p.getByRole('button', { name: 'Change price' }).click()
+      await p.getByLabel('Material cost per trip').fill('650000')
+      await p.getByRole('button', { name: 'Save new price' }).click()
+      await p.getByText('Check for an extra zero').waitFor({ timeout: 2000 })
+    }],
+    ['change-price-loss', '/routes/r1', {}, async (p) => {
+      let saved = 0
+      p.on('request', (r) => { if (r.url().includes('/rpc/change_route_price')) saved++ })
+      await p.getByRole('button', { name: 'Change price' }).click()
+      await p.getByLabel('Customer price per trip').fill('150000')
+      await p.getByRole('button', { name: 'Save new price' }).click()
+      await p.getByText('This price makes a loss of ₦51,100 per trip.').waitFor({ timeout: 2000 })
+      if (saved) throw new Error('saved before the loss was confirmed')
+      await p.getByRole('button', { name: 'Save at a loss' }).waitFor({ timeout: 2000 })
+    }],
+    ['change-price-loss-confirm', '/routes/r1', {}, async (p) => {
+      let saved = 0
+      p.on('request', (r) => { if (r.url().includes('/rpc/change_route_price')) saved++ })
+      await p.getByRole('button', { name: 'Change price' }).click()
+      await p.getByLabel('Customer price per trip').fill('150000')
+      await p.getByRole('button', { name: 'Save new price' }).click()
+      await p.getByRole('button', { name: 'Save at a loss' }).click()
+      await p.getByRole('button', { name: 'Save at a loss' }).waitFor({ state: 'detached', timeout: 2000 })
+      if (saved !== 1) throw new Error(`expected 1 save, got ${saved}`)
+    }],
     ['route-new', '/routes/new', {}, async (p) => { await p.getByRole('button', { name: 'Create route' }).click() }],
+    ['route-new-loss', '/routes/new', {}, async (p) => {
+      await p.getByLabel('Material source').selectOption({ index: 1 })
+      await p.getByLabel('Destination area').fill('Kubwa')
+      await p.getByLabel('Diesel allowance (litres)').fill('70')
+      await p.getByLabel('Customer price per trip').fill('150000')
+      await p.getByRole('button', { name: 'Create route' }).click()
+      await p.getByText('This price makes a loss of').waitFor({ timeout: 2000 })
+      await p.getByRole('button', { name: 'Save at a loss' }).waitFor({ timeout: 2000 })
+    }],
     ['diesel', '/diesel', {}],
     ['diesel-modal', '/diesel', {}, async (p) => { await p.getByRole('button', { name: 'Record price' }).click(); await p.getByLabel('Pump price per litre').fill('1800') }],
     ['trucks', '/trucks', {}],
