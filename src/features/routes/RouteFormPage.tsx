@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -24,6 +24,8 @@ import type { RouteWithCurrent } from '@/services/routes'
 import { useSources } from '@/features/sources/api'
 import { useDieselPrices } from '@/features/diesel/api'
 import { useRoute, useSaveRoute } from './api'
+import { costOverPrice, tripEconomics } from './economics'
+import { LossWarning } from './LossWarning'
 
 const base = {
   name: requiredText('Route name', 160),
@@ -116,7 +118,27 @@ function RouteForm({ route }: { route?: RouteWithCurrent }) {
     if (isNew && pump && !form.getValues('diesel_price_per_litre')) form.setValue('diesel_price_per_litre', String(pump))
   }, [isNew, pump, form])
 
+  // The loss margin the user was warned about; saving again at that margin confirms it.
+  const [warnedLoss, setWarnedLoss] = useState<number | null>(null)
+  const w = form.watch()
+  const parsed = isNew ? newSchema.safeParse(w) : null
+  const lossConfirming =
+    warnedLoss !== null && !!parsed?.success && tripEconomics(parsed.data, parsed.data.diesel_allowance_litres as number).margin === warnedLoss
+
   const onSubmit = form.handleSubmit(async (v) => {
+    if (isNew) {
+      const litres = v.diesel_allowance_litres as number
+      const bad = costOverPrice(v)
+      if (bad) {
+        form.setError(bad.field, { message: bad.message }, { shouldFocus: true })
+        return
+      }
+      const { margin } = tripEconomics(v, litres)
+      if (margin < 0 && warnedLoss !== margin) {
+        setWarnedLoss(margin)
+        return
+      }
+    }
     const input = {
       name: v.name,
       source_id: v.source_id,
@@ -185,9 +207,10 @@ function RouteForm({ route }: { route?: RouteWithCurrent }) {
             </FormGrid>
           </Card>
         )}
+        {lossConfirming && warnedLoss !== null && <LossWarning margin={warnedLoss} />}
         <FormActions>
           <Button type="submit" block className="md:w-auto" loading={save.isPending} icon={<Save size={20} strokeWidth={1.5} aria-hidden />}>
-            {isNew ? 'Create route' : 'Save route'}
+            {lossConfirming ? 'Save at a loss' : isNew ? 'Create route' : 'Save route'}
           </Button>
           <ButtonLink to={backTo} variant="secondary" block className="md:w-auto">
             Cancel

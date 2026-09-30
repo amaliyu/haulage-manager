@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -9,7 +9,8 @@ import { naira, optionalText } from '@/lib/zod'
 import type { RouteWithCurrent } from '@/services/routes'
 import { useDieselPrices } from '@/features/diesel/api'
 import { useChangeRoutePrice } from './api'
-import { tripEconomics } from './economics'
+import { costOverPrice, tripEconomics } from './economics'
+import { LossWarning } from './LossWarning'
 
 export const priceSchema = z.object({
   customer_price: naira('Customer price', { allowZero: false }),
@@ -56,16 +57,34 @@ export function ChangePriceModal({ open, onClose, route }: { open: boolean; onCl
   })
   const form = useForm<PriceIn, unknown, PriceOut>({ resolver: zodResolver(priceSchema), defaultValues: defaults() })
 
+  // The loss margin the user was warned about; saving again at that margin confirms it.
+  const [warnedLoss, setWarnedLoss] = useState<number | null>(null)
+
   useEffect(() => {
-    if (open) form.reset(defaults())
+    if (open) {
+      form.reset(defaults())
+      setWarnedLoss(null)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, current?.id, pump])
 
+  const litres = Number(route.diesel_allowance_litres)
   const w = form.watch()
   const parsed = priceSchema.safeParse(w)
-  const preview = parsed.success ? tripEconomics(parsed.data, Number(route.diesel_allowance_litres)) : null
+  const preview = parsed.success ? tripEconomics(parsed.data, litres) : null
+  const lossConfirming = warnedLoss !== null && preview?.margin === warnedLoss
 
   const onSubmit = form.handleSubmit(async (v) => {
+    const bad = costOverPrice(v)
+    if (bad) {
+      form.setError(bad.field, { message: bad.message }, { shouldFocus: true })
+      return
+    }
+    const { margin } = tripEconomics(v, litres)
+    if (margin < 0 && warnedLoss !== margin) {
+      setWarnedLoss(margin)
+      return
+    }
     try {
       await change.mutateAsync({ route_id: route.id, ...v })
       toast.success(`New price for ${route.name}: ${formatNaira(v.customer_price)}.`)
@@ -81,13 +100,17 @@ export function ChangePriceModal({ open, onClose, route }: { open: boolean; onCl
       onClose={onClose}
       title={`Change price: ${route.name}`}
       footer={
-        <div className="flex flex-col gap-3 md:flex-row-reverse">
-          <Button type="submit" form="price-form" block className="md:w-auto" loading={change.isPending} icon={<Save size={20} strokeWidth={1.5} aria-hidden />}>
-            Save new price
-          </Button>
-          <Button variant="secondary" block className="md:w-auto" onClick={onClose}>
-            Cancel
-          </Button>
+        <div className="flex flex-col gap-3">
+          {/* In the footer, not the body, so it sits next to the button on a phone. */}
+          {lossConfirming && warnedLoss !== null && <LossWarning margin={warnedLoss} />}
+          <div className="flex flex-col gap-3 md:flex-row-reverse">
+            <Button type="submit" form="price-form" block className="md:w-auto" loading={change.isPending} icon={<Save size={20} strokeWidth={1.5} aria-hidden />}>
+              {lossConfirming ? 'Save at a loss' : 'Save new price'}
+            </Button>
+            <Button variant="secondary" block className="md:w-auto" onClick={onClose}>
+              Cancel
+            </Button>
+          </div>
         </div>
       }
     >
