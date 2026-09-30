@@ -9,10 +9,14 @@ import { CustomerDetailPage } from '@/features/customers/CustomerDetailPage'
 import { CustomerFormPage } from '@/features/customers/CustomerFormPage'
 import { CustomerListPage } from '@/features/customers/CustomerListPage'
 import { DieselPage } from '@/features/diesel/DieselPage'
+import { DispatchPage } from '@/features/dispatch/DispatchPage'
 import { DriverFormPage } from '@/features/drivers/DriverFormPage'
 import { DriverListPage } from '@/features/drivers/DriverListPage'
 import { HomePage } from '@/features/home/HomePage'
 import { NotFoundPage } from '@/features/home/NotFoundPage'
+import { OrderDetailPage } from '@/features/orders/OrderDetailPage'
+import { OrderFormPage } from '@/features/orders/OrderFormPage'
+import { OrderListPage } from '@/features/orders/OrderListPage'
 import { RouteDetailPage } from '@/features/routes/RouteDetailPage'
 import { RouteFormPage } from '@/features/routes/RouteFormPage'
 import { RouteListPage } from '@/features/routes/RouteListPage'
@@ -24,6 +28,7 @@ import { UsersPage } from '@/features/users/UsersPage'
 
 const STAFF = ['admin', 'dispatcher', 'finance'] as const
 const ADMIN = ['admin'] as const
+const DISPATCH = ['admin', 'dispatcher'] as const
 
 const router = createBrowserRouter([
   { path: '/login', element: <LoginPage /> },
@@ -40,6 +45,8 @@ const router = createBrowserRouter([
           {
             element: <RequireRole roles={[...STAFF]} />,
             children: [
+              { path: 'orders', element: <OrderListPage /> },
+              { path: 'orders/:id', element: <OrderDetailPage /> },
               { path: 'customers', element: <CustomerListPage /> },
               { path: 'customers/:id', element: <CustomerDetailPage /> },
               { path: 'sources', element: <SourceListPage /> },
@@ -49,6 +56,13 @@ const router = createBrowserRouter([
               { path: 'trucks', element: <TruckListPage /> },
               { path: 'trucks/:id', element: <TruckDetailPage /> },
               { path: 'drivers', element: <DriverListPage /> },
+            ],
+          },
+          {
+            element: <RequireRole roles={[...DISPATCH]} />,
+            children: [
+              { path: 'orders/new', element: <OrderFormPage /> },
+              { path: 'dispatch', element: <DispatchPage /> },
             ],
           },
           {

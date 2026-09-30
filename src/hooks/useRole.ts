@@ -19,5 +19,9 @@ export function useRole() {
     /** Step 1: only admins write master data. */
     canWriteMasterData: role === 'admin',
     canManageUsers: role === 'admin',
+    /** Create orders, dispatch, cancel (Step 3). */
+    canDispatch: role === 'admin' || role === 'dispatcher',
+    /** Record a customer payment against an order. */
+    canRecordPayment: role === 'admin' || role === 'finance',
   }
 }

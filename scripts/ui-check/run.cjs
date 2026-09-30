@@ -74,7 +74,53 @@ const diesel = [
   { id: 'dp2', price_per_litre: 1730, effective_from: iso(3), effective_to: null, set_by: U.admin, created_at: iso(3), updated_at: null, created_by: U.admin, setter: { full_name: 'Muktar Aliyu' } },
   { id: 'dp1', price_per_litre: 1650, effective_from: iso(45), effective_to: iso(3), set_by: U.admin, created_at: iso(45), updated_at: null, created_by: U.admin, setter: { full_name: 'Muktar Aliyu' } },
 ]
-const tables = { profiles, material_sources: src, routes, route_prices: r1prices, customers, customer_sites: sites, trucks, drivers, diesel_prices: diesel }
+sites.push({ id: 'cs3', customer_id: 'c2', name: 'Plot 44, Life Camp', area: 'Gwarinpa', latitude: 9.0801, longitude: 7.4132, geofence_radius_m: 300, directions: 'Blue gate opposite the filling station.', is_active: true, created_at: iso(8), updated_at: null, created_by: U.admin })
+const ref = (c, site, r) => ({
+  customer: { id: c.id, name: c.name, phone: c.phone, payment_terms: c.payment_terms, credit_load_cap: c.credit_load_cap },
+  site: { id: site.id, name: site.name, area: site.area },
+  route: { id: r.id, name: r.name, diesel_allowance_litres: r.diesel_allowance_litres },
+})
+const order = (id, num, c, site, r, status, n, extra = {}) => ({
+  id, order_number: num, customer_id: c.id, site_id: site.id, route_id: r.id, material: 'sharp_sand', trips_ordered: n,
+  price_per_trip: r.prices[0]?.customer_price ?? 310000, route_price_id: r.prices[0]?.id ?? null, status, payment_terms: c.payment_terms,
+  payment_id: null, cancel_reason: null, notes: null, created_at: iso(extra.age ?? 1), updated_at: null, created_by: U.disp,
+  ...ref(c, site, r), trips: [], payment: null, ...extra,
+})
+const orders = [
+  order('o1', 'ORD-2026-0007', customers[1], sites[2], routes[0], 'awaiting_payment', 2, { age: 0.1, notes: 'Customer will transfer before noon.' }),
+  order('o2', 'ORD-2026-0006', customers[0], sites[0], routes[0], 'in_progress', 3, { age: 0.5, payment: null }),
+  order('o3', 'ORD-2026-0005', customers[0], sites[0], routes[1], 'cancelled', 1, { age: 2, cancel_reason: 'Site closed for inspection' }),
+]
+const tripRow = (id, num, o, status, extra = {}) => ({
+  id, trip_number: num, order_id: o.id, truck_id: null, driver_id: null, source_id: src[0].id, status, price: o.price_per_trip,
+  material_cost: 65000, crew_cost: 15000, diesel_litres_issued: 0, diesel_cost: 0, repayment_allocation: 0, loader_receipt_no: null,
+  assigned_at: null, loaded_at: null, delivered_at: null, settled_at: null, cancel_reason: null, created_at: o.created_at, updated_at: null, created_by: U.disp,
+  driver: null, truck: null,
+  order: { id: o.id, order_number: o.order_number, status: o.status, payment_terms: o.payment_terms, material: o.material, created_at: o.created_at, customer: { id: o.customer.id, name: o.customer.name }, site: o.site, route: { id: o.route.id, name: o.route.name } },
+  ...extra,
+})
+const crew = (d, t) => ({ driver_id: d.id, truck_id: t.id, driver: { id: d.id, full_name: d.full_name, phone: d.phone }, truck: { id: t.id, plate_number: t.plate_number, reference_load_photo_url: t.reference_load_photo_url } })
+const trips = [
+  tripRow('tr1', 'TRP-2026-000021', orders[0], 'pending'),
+  tripRow('tr2', 'TRP-2026-000022', orders[0], 'pending'),
+  tripRow('tr3', 'TRP-2026-000018', orders[1], 'assigned', { ...crew(drivers[0], trucks[2]), assigned_at: new Date(now - 135 * 60000).toISOString() }),
+  tripRow('tr4', 'TRP-2026-000019', orders[1], 'pending'),
+  tripRow('tr5', 'TRP-2026-000017', orders[1], 'delivered', { ...crew(drivers[1], trucks[0]), assigned_at: iso(0.6), delivered_at: iso(0.4) }),
+  tripRow('tr6', 'TRP-2026-000015', orders[2], 'cancelled', { cancel_reason: 'Site closed for inspection' }),
+]
+for (const o of orders) o.trips = trips.filter((t) => t.order_id === o.id).map((t) => ({ id: t.id, status: t.status }))
+const event = (id, t, type, note, minsAgo) => ({ id, trip_id: t.id, event_type: type, actor_id: U.disp, occurred_at: new Date(now - minsAgo * 60000).toISOString(), latitude: null, longitude: null, note, created_at: iso(0), updated_at: null, created_by: U.disp, trip: { trip_number: t.trip_number, order_id: t.order_id }, actor: { full_name: 'Chinedu Okafor' } })
+const trip_events = [
+  event('e3', trips[2], 'assigned', 'Assigned to Ibrahim Danjuma, truck GWA-771-XY', 135),
+  event('e2', trips[4], 'assigned', 'Assigned to Emeka Nwosu, truck ABJ-482-KW', 800),
+  event('e1', trips[2], 'created', null, 900),
+]
+const myTrips = [{
+  trip_id: 'tr3', trip_number: 'TRP-2026-000018', status: 'assigned', assigned_at: trips[2].assigned_at, order_number: 'ORD-2026-0006', material: 'sharp_sand',
+  customer_name: customers[0].name, customer_phone: customers[0].phone, site_name: sites[0].name, site_area: sites[0].area, site_directions: sites[0].directions,
+  site_latitude: sites[0].latitude, site_longitude: sites[0].longitude, route_name: routes[0].name, source_name: src[0].name, truck_plate: 'GWA-771-XY',
+}]
+const tables = { profiles, material_sources: src, routes, route_prices: r1prices, customers, customer_sites: sites, trucks, drivers, diesel_prices: diesel, orders, trips, trip_events }
 
 // a tiny 1x1 jpeg
 const JPEG = Buffer.from('/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAABAAEBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA=', 'base64')
@@ -93,6 +139,8 @@ async function setup(page, { user = 'admin', mode = 'ok', theme = 'light' } = {}
     if (url.pathname.startsWith('/storage/v1/object/')) return route.fulfill({ body: JPEG, contentType: 'image/jpeg' })
     if (url.pathname.startsWith('/auth/')) return route.fulfill({ json: {} })
     const table = url.pathname.replace('/rest/v1/', '')
+    if (table === 'rpc/my_trips') return route.fulfill({ json: mode === 'empty' ? [] : myTrips })
+    if (table.startsWith('rpc/')) return route.fulfill({ json: { id: 'o1', order_number: 'ORD-2026-0008' } })
     if (req.method() !== 'GET' && req.method() !== 'HEAD') return route.fulfill({ status: 201, json: single ? {} : [] })
     if (table === 'profiles' && url.searchParams.get('id')) {
       const id = url.searchParams.get('id').replace('eq.', '')
@@ -104,7 +152,7 @@ async function setup(page, { user = 'admin', mode = 'ok', theme = 'light' } = {}
     let rows = tables[table] ?? []
     if (user === 'driver' && table === 'drivers') rows = rows.filter((d) => d.profile_id === U.drv)
     for (const [k, v] of url.searchParams) {
-      if (['select', 'order', 'limit', 'or', 'offset'].includes(k)) continue
+      if (['select', 'order', 'limit', 'or', 'offset'].includes(k) || k.includes('.')) continue
       if (v.startsWith('eq.')) {
         const val = v.slice(3)
         rows = rows.filter((r) => String(r[k]) === val)
@@ -207,6 +255,33 @@ const SCENES = [
       await p.getByText('This price makes a loss of').waitFor({ timeout: 2000 })
       await p.getByRole('button', { name: 'Save at a loss' }).waitFor({ timeout: 2000 })
     }],
+    ['orders', '/orders', {}],
+    ['orders-empty', '/orders', { mode: 'empty' }],
+    ['orders-error', '/orders', { mode: 'error' }],
+    ['orders-loading', '/orders', { mode: 'slow' }],
+    ['order-new-errors', '/orders/new', {}, async (p) => { await p.getByRole('button', { name: 'Create order' }).click() }],
+    ['order-new-summary', '/orders/new', {}, async (p) => {
+      await p.getByLabel('Customer').selectOption({ label: 'Julius Berger Nigeria Plc · Credit' })
+      await p.getByLabel('Route').selectOption({ index: 1 })
+      await p.getByLabel('Number of trips').fill('14')
+      await p.getByText('Only 12 more loads').waitFor({ timeout: 2000 })
+    }],
+    ['order-awaiting', '/orders/o1', {}, async (p) => { await p.getByText('Awaiting payment of').waitFor({ timeout: 2000 }) }],
+    ['order-in-progress', '/orders/o2', {}, async (p) => { await p.getByRole('heading', { name: 'History' }).waitFor({ timeout: 2000 }) }],
+    ['order-cancelled', '/orders/o3', {}],
+    ['record-payment', '/orders/o1', {}, async (p) => {
+      await p.getByRole('button', { name: 'Record payment' }).first().click()
+      await p.getByLabel('Amount received').fill('100000')
+      await p.getByRole('button', { name: 'Record payment' }).last().click()
+      await p.getByText('Prepaid orders are paid in full').waitFor({ timeout: 2000 })
+    }],
+    ['cancel-order', '/orders/o2', {}, async (p) => { await p.getByRole('button', { name: 'Cancel order' }).click() }],
+    ['dispatch', '/dispatch', {}, async (p) => { await p.getByText('Waiting for payment').waitFor({ timeout: 2000 }) }],
+    ['dispatch-empty', '/dispatch', { mode: 'empty' }],
+    ['dispatch-assign', '/dispatch', {}, async (p) => {
+      await p.getByRole('button', { name: /Dispatch/ }).first().click()
+      await p.getByLabel('Driver').selectOption({ index: 1 })
+    }],
     ['diesel', '/diesel', {}],
     ['diesel-modal', '/diesel', {}, async (p) => { await p.getByRole('button', { name: 'Record price' }).click(); await p.getByLabel('Pump price per litre').fill('1800') }],
     ['trucks', '/trucks', {}],
@@ -220,6 +295,7 @@ const SCENES = [
     ['dispatcher-customers', '/customers', { user: 'disp' }],
     ['dispatcher-users-blocked', '/users', { user: 'disp' }],
     ['driver-home', '/', { user: 'drv' }],
+    ['driver-home-empty', '/', { user: 'drv', mode: 'empty' }],
 ]
 
 ;(async () => {

@@ -2,13 +2,23 @@
 
 Dispatch and settlement for sand and granite tipper haulage in Abuja. One **trip** is one full tipper load from a quarry or sand site to a customer's site. The price per trip covers material plus haulage. There is no weighbridge: the quantity standard is "one full tipper", proved by photographs against each truck's reference full-load photo.
 
-**Step 1** (this release) covers:
+**Step 1** covers:
 
 - the full database schema, with RLS on every table;
 - authentication and roles (admin, dispatcher, finance, driver);
 - the master-data screens: customers and their delivery sites, material sources, routes and price history, diesel pump price, trucks with reference photos, drivers and users.
 
-Orders, dispatch, the driver trip app and reports come in later steps.
+**Step 3** (orders and dispatch) adds:
+
+- **Orders.** An admin or dispatcher picks the customer, delivery site, route and number of trips. The order keeps the route's price from that moment; later price changes never touch it. One pending trip is created per load.
+- **Payment gate.** A prepaid order waits in *Awaiting payment* until finance or an admin records the full payment (Record payment writes a payment and a ledger entry). Only then can its trips be dispatched.
+- **Credit cap.** A credit customer cannot have more loads dispatched but not yet settled than their credit cap. A cap of 0 blocks dispatch.
+- **Dispatch.** The Dispatch board lists trips to dispatch, trips on the road and orders waiting for payment. Picking a driver fills in their usual truck; the dispatcher can pick another free truck. A truck or driver can be on only one active trip. Trucks go *On trip* and back to *Available* automatically.
+- **Drivers** see their current trips on Home: where to deliver, customer phone, directions and a Maps link.
+
+All of these rules are enforced in the database (triggers and functions in `supabase/migrations/20261001000000_step3_orders_dispatch.sql`), not only in the app.
+
+The driver trip actions (loaded, delivered, photos), settlement and reports come in later steps.
 
 UI rules are in [DESIGN.md](DESIGN.md). Every screen follows them.
 
@@ -55,7 +65,9 @@ Nothing in this repository applies migrations automatically. In the Supabase das
 
 1. `supabase/migrations/20260922000000_step1_schema.sql` creates the tables, constraints, triggers, audit log, numbering functions, role helpers, price-change functions, RLS policies, and the private `trip-photos` storage bucket with its policies.
 2. `supabase/migrations/20260923000000_advisor_fixes.sql` applies the Supabase advisor fixes. Trigger functions can no longer be called as RPCs, `anon` can execute nothing, and it adds covering indexes for the business foreign keys.
-3. `supabase/seed.sql` adds the sample data: Koita and Kwali sand sites, four routes to Gwarinpa and Apo/Wuye with current prices, and a diesel price of ₦1,730/L. It is safe to run twice. It adds no customers, trucks or drivers. Delete the sample rows from the app once real data exists.
+3. `supabase/migrations/20261001000000_step3_orders_dispatch.sql` adds the order and dispatch rules and the `create_order`, `assign_trip`, `cancel_trip`, `cancel_order` and `record_order_payment` functions.
+4. `supabase/migrations/20261001000100_driver_my_trips.sql` adds `my_trips()`, which gives a driver the delivery details of their own active trips.
+5. `supabase/seed.sql` adds the sample data: Koita and Kwali sand sites, four routes to Gwarinpa and Apo/Wuye with current prices, and a diesel price of ₦1,730/L. It is safe to run twice. It adds no customers, trucks or drivers. Delete the sample rows from the app once real data exists.
 
 If you use the Supabase CLI instead: `supabase link --project-ref <ref>`, then `supabase db push`, then run `seed.sql` in the SQL editor.
 
@@ -92,13 +104,16 @@ A signed-in account with no profile row, or with `is_active = false`, sees "Acce
 
 For a driver, after enabling access with the Driver role, open **Drivers**. Edit their driver record, and set **App login** to link it.
 
-## Roles in Step 1
+## Roles
 
 | | Admin | Dispatcher | Finance | Driver |
 |---|---|---|---|---|
 | Master data (customers, sites, sources, routes, prices, diesel, trucks, drivers) | read + write | read | read | trucks + own driver row |
+| Orders | create, cancel | create, cancel | read | — |
+| Record payment | yes | — | yes | — |
+| Dispatch (assign, reassign, cancel trips) | yes | yes | — | — |
 | Users | manage | — | — | — |
-| App screens | everything | read-only master data | read-only master data | "Trips coming soon" home with their truck |
+| Home | overview | overview | overview | own current trips and usual truck |
 
 The database enforces these rules with RLS and guard triggers. The UI only hides what a role can't do. The full matrix for orders, trips, payments and ledger, used in later steps, is in the migration file.
 
