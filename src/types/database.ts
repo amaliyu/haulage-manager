@@ -1383,6 +1383,27 @@ export type Database = {
       current_user_role: { Args: never; Returns: string }
       hm_internal: { Args: never; Returns: boolean }
       is_assigned_driver: { Args: { p_trip_id: string }; Returns: boolean }
+      my_trips: {
+        Args: never
+        Returns: {
+          assigned_at: string
+          customer_name: string
+          customer_phone: string
+          material: string
+          order_number: string
+          route_name: string
+          site_area: string
+          site_directions: string
+          site_latitude: number
+          site_longitude: number
+          site_name: string
+          source_name: string
+          status: string
+          trip_id: string
+          trip_number: string
+          truck_plate: string
+        }[]
+      }
       next_doc_number: {
         Args: { p_prefix: string; p_width: number }
         Returns: string

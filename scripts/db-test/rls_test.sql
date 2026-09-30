@@ -173,10 +173,12 @@ begin perform set_config('request.jwt.claim.sub', '', true); reset role; end $$;
 
 insert into customers(id,name,phone,payment_terms,credit_load_cap,credit_days) values
  ('30000000-0000-0000-0000-000000000002','Credit Co','0802','credit',1,30),
- ('30000000-0000-0000-0000-000000000003','Zero Cap','0804','credit',0,30);
+ ('30000000-0000-0000-0000-000000000003','Zero Cap','0804','credit',0,30),
+ ('30000000-0000-0000-0000-000000000004','Roomy Co','0808','credit',5,30);
 insert into customer_sites(id,customer_id,name,area) values
  ('40000000-0000-0000-0000-000000000002','30000000-0000-0000-0000-000000000002','Site2','Gwarinpa'),
- ('40000000-0000-0000-0000-000000000003','30000000-0000-0000-0000-000000000003','Site3','Gwarinpa');
+ ('40000000-0000-0000-0000-000000000003','30000000-0000-0000-0000-000000000003','Site3','Gwarinpa'),
+ ('40000000-0000-0000-0000-000000000004','30000000-0000-0000-0000-000000000004','Site4','Gwarinpa');
 insert into trucks(id,plate_number,owner_type,status) values
  ('10000000-0000-0000-0000-000000000002','ABJ-222-XY','spv','available'),
  ('10000000-0000-0000-0000-000000000003','ABJ-333-XY','spv','available'),
@@ -306,6 +308,23 @@ do $$ declare o orders; begin
  assert (select status from orders where id=o.id)='completed';
  perform pg_temp.expect_err(format('update trips set status=%L where order_id=%L and status=%L', 'pending', o.id, 'delivered'), 'can no longer be changed');
 end $$;
+
+\echo '--- step 3: my_trips shows a driver only their own active trips'
+select pg_temp.act('00000000-0000-0000-0000-00000000000d');
+do $$ declare o orders; begin
+ o := public.create_order('30000000-0000-0000-0000-000000000004','40000000-0000-0000-0000-000000000004',
+        (select id from routes where destination_area='Gwarinpa' order by name limit 1), 1, 'S3-D');
+ perform public.assign_trip((select id from trips where order_id=o.id),'20000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000001');
+ assert (select count(*) from public.my_trips())=0, 'dispatcher sees driver trips';
+end $$;
+select pg_temp.act('00000000-0000-0000-0000-0000000000a1');
+do $$ begin
+ assert (select count(*) from public.my_trips())=1;
+ assert (select site_name from public.my_trips())='Site4';
+ assert (select truck_plate from public.my_trips())='ABJ-123-XY';
+end $$;
+select pg_temp.act('00000000-0000-0000-0000-0000000000a2');
+do $$ begin assert (select count(*) from public.my_trips())=0, 'other driver sees trip'; end $$;
 
 \echo '--- step 3: drivers cannot create or dispatch; functions not callable by anon'
 select pg_temp.act('00000000-0000-0000-0000-0000000000a1');
