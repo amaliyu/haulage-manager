@@ -108,5 +108,16 @@ export async function openLoadsForCustomer(customerId: string): Promise<number> 
 export function orderTotals(o: Pick<OrderWithRefs, 'price_per_trip' | 'trips'>) {
   const live = o.trips.filter((t) => t.status !== 'cancelled')
   const done = live.filter((t) => t.status === 'delivered' || t.status === 'settled').length
-  return { live: live.length, done, total: live.length * o.price_per_trip }
+  return { live: live.length, done, cancelled: o.trips.length - live.length, total: live.length * o.price_per_trip }
+}
+
+/** "0 of 1 delivered · 1 cancelled" */
+export function tripProgress(t: { live: number; done: number; cancelled: number }) {
+  return `${t.done} of ${t.live} delivered${t.cancelled ? ` · ${t.cancelled} cancelled` : ''}`
+}
+
+/** Money paid beyond what the order now costs (after cancelled trips). Kept as customer credit. */
+export function overpaid(o: Pick<OrderWithRefs, 'price_per_trip' | 'trips' | 'payment'>) {
+  if (!o.payment) return 0
+  return Math.max(0, o.payment.amount - orderTotals(o).total)
 }

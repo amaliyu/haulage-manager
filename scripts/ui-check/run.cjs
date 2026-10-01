@@ -1,5 +1,5 @@
 // UI check: builds the app against a mocked Supabase, then renders every
-// screen at 360px and 1280px in light and dark mode and fails on horizontal
+// screen at 360, 800, 1024 and 1280px in light and dark mode and fails on horizontal
 // overflow, touch targets under 48px on phones, pure-black text or JS errors.
 //   npm run ui:check                 all scenes, screenshots to scripts/ui-check/out
 //   SCENES=routes,users npm run ui:check
@@ -90,6 +90,7 @@ const orders = [
   order('o1', 'ORD-2026-0007', customers[1], sites[2], routes[0], 'awaiting_payment', 2, { age: 0.1, notes: 'Customer will transfer before noon.' }),
   order('o2', 'ORD-2026-0006', customers[0], sites[0], routes[0], 'in_progress', 3, { age: 0.5, payment: null }),
   order('o3', 'ORD-2026-0005', customers[0], sites[0], routes[1], 'cancelled', 1, { age: 2, cancel_reason: 'Site closed for inspection' }),
+  order('o4', 'ORD-2026-0004', customers[1], sites[2], routes[0], 'in_progress', 2, { age: 0.3, payment_id: 'pay1', payment: { id: 'pay1', amount: 620000, method: 'cash', bank_reference: null, received_at: iso(0.3) } }),
 ]
 const tripRow = (id, num, o, status, extra = {}) => ({
   id, trip_number: num, order_id: o.id, truck_id: null, driver_id: null, source_id: src[0].id, status, price: o.price_per_trip,
@@ -107,6 +108,8 @@ const trips = [
   tripRow('tr4', 'TRP-2026-000019', orders[1], 'pending'),
   tripRow('tr5', 'TRP-2026-000017', orders[1], 'delivered', { ...crew(drivers[1], trucks[0]), assigned_at: iso(0.6), delivered_at: iso(0.4) }),
   tripRow('tr6', 'TRP-2026-000015', orders[2], 'cancelled', { cancel_reason: 'Site closed for inspection' }),
+  tripRow('tr7', 'TRP-2026-000013', orders[3], 'assigned', { ...crew(drivers[1], trucks[0]), assigned_at: iso(0.2) }),
+  tripRow('tr8', 'TRP-2026-000014', orders[3], 'cancelled', { cancel_reason: 'Customer reduced the order' }),
 ]
 for (const o of orders) o.trips = trips.filter((t) => t.order_id === o.id).map((t) => ({ id: t.id, status: t.status }))
 const event = (id, t, type, note, minsAgo) => ({ id, trip_id: t.id, event_type: type, actor_id: U.disp, occurred_at: new Date(now - minsAgo * 60000).toISOString(), latitude: null, longitude: null, note, created_at: iso(0), updated_at: null, created_by: U.disp, trip: { trip_number: t.trip_number, order_id: t.order_id }, actor: { full_name: 'Chinedu Okafor' } })
@@ -276,11 +279,16 @@ const SCENES = [
       await p.getByText('Prepaid orders are paid in full').waitFor({ timeout: 2000 })
     }],
     ['cancel-order', '/orders/o2', {}, async (p) => { await p.getByRole('button', { name: 'Cancel order' }).click() }],
+    ['order-overpaid', '/orders/o4', {}, async (p) => { await p.getByText('more than this order now costs').waitFor({ timeout: 2000 }); await p.getByText('0 of 1 delivered · 1 cancelled').waitFor({ timeout: 2000 }) }],
+    ['cancel-paid-trip', '/orders/o4', {}, async (p) => {
+      await p.locator('button:visible', { hasText: 'Cancel trip' }).first().click()
+      await p.getByText('has already paid for this trip').waitFor({ timeout: 2000 })
+    }],
     ['dispatch', '/dispatch', {}, async (p) => { await p.getByText('Waiting for payment').waitFor({ timeout: 2000 }) }],
     ['dispatch-empty', '/dispatch', { mode: 'empty' }],
     ['dispatch-assign', '/dispatch', {}, async (p) => {
       await p.getByRole('button', { name: /Dispatch/ }).first().click()
-      await p.getByLabel('Driver').selectOption({ index: 1 })
+      if (!(await p.locator('option[disabled]', { hasText: 'Ibrahim Danjuma — on TRP-2026-000018' }).count())) throw new Error('busy driver not shown greyed out')
     }],
     ['diesel', '/diesel', {}],
     ['diesel-modal', '/diesel', {}, async (p) => { await p.getByRole('button', { name: 'Record price' }).click(); await p.getByLabel('Pump price per litre').fill('1800') }],
@@ -312,7 +320,7 @@ const SCENES = [
     const srv = await serve(path.join(TMP, dist), 4173)
     const scenes = (dist === 'dist-noenv' ? NOENV_SCENES : SCENES).filter(([n]) => !only.length || only.includes(n))
     for (const [name, url, opts, act] of scenes) {
-      for (const vw of [360, 1280]) for (const theme of ['light', 'dark']) {
+      for (const vw of [360, 800, 1024, 1280]) for (const theme of ['light', 'dark']) {
         const ctx = await browser.newContext({ viewport: { width: vw, height: 800 }, deviceScaleFactor: vw === 360 ? 2 : 1, colorScheme: theme })
         const page = await ctx.newPage()
         const errs = []

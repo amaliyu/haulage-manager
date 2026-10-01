@@ -15,8 +15,8 @@ import {
   useToast,
 } from '@/components/ui'
 import { useRole } from '@/hooks/useRole'
-import { formatDateTime, formatNaira, formatNumber } from '@/lib/format'
-import { orderTotals, type OrderWithRefs } from '@/services/orders'
+import { formatDateTime, formatNaira } from '@/lib/format'
+import { orderTotals, overpaid, tripProgress, type OrderWithRefs } from '@/services/orders'
 import type { TripWithCrew } from '@/services/trips'
 import { TermsPill } from '@/features/customers/CustomerListPage'
 import { materialLabel } from '@/features/sources/labels'
@@ -67,8 +67,11 @@ function OrderDetail({ order: o }: { order: OrderWithRefs }) {
   const [paying, setPaying] = useState(false)
   const [cancelling, setCancelling] = useState(false)
   const t = orderTotals(o)
+  const credit = overpaid(o)
   const closed = o.status === 'completed' || o.status === 'cancelled'
   const awaiting = o.status === 'awaiting_payment'
+  const paidPrepaid = o.payment_terms === 'prepaid' && Boolean(o.payment_id)
+  const remaining = t.live - t.done
 
   return (
     <>
@@ -117,13 +120,21 @@ function OrderDetail({ order: o }: { order: OrderWithRefs }) {
             { label: 'Route', value: o.route ? <Link to={`/routes/${o.route.id}`} className="inline-flex min-h-touch items-center underline underline-offset-4 md:min-h-0">{o.route.name}</Link> : '—' },
             { label: 'Material', value: materialLabel(o.material) },
             { label: 'Price per trip', value: formatNaira(o.price_per_trip), numeric: true },
-            { label: 'Trips done', value: `${formatNumber(t.done)} of ${formatNumber(t.live)}${t.live !== o.trips_ordered ? ` (${o.trips_ordered} ordered)` : ''}`, numeric: true },
+            { label: 'Trips', value: tripProgress(t), numeric: true },
             { label: 'Order total', value: <span className="font-display text-section font-bold">{formatNaira(t.total)}</span>, numeric: true },
             {
               label: 'Payment',
-              value: o.payment
-                ? `${formatNaira(o.payment.amount)} · ${paymentMethodLabel(o.payment.method)}${o.payment.bank_reference ? ` · ${o.payment.bank_reference}` : ''} · ${formatDateTime(o.payment.received_at)}`
-                : o.payment_id
+              value: o.payment ? (
+                <>
+                  {`${formatNaira(o.payment.amount)} paid · ${paymentMethodLabel(o.payment.method)}${o.payment.bank_reference ? ` · ${o.payment.bank_reference}` : ''} · ${formatDateTime(o.payment.received_at)}`}
+                  {credit > 0 && (
+                    <span className="mt-1 block text-small text-ink-2">
+                      <span className="num font-semibold text-ink">{formatNaira(credit)}</span> more than this order now costs, because trips were
+                      cancelled. Kept as customer credit until finance refunds it or uses it on another order.
+                    </span>
+                  )}
+                </>
+              ) : o.payment_id
                   ? 'Paid'
                   : o.payment_terms === 'credit'
                     ? 'On credit'
@@ -143,7 +154,19 @@ function OrderDetail({ order: o }: { order: OrderWithRefs }) {
       <ReasonDialog
         open={cancelling}
         title={`Cancel order ${o.order_number}?`}
-        message={`All ${t.live - t.done} remaining ${t.live - t.done === 1 ? 'trip' : 'trips'} will be cancelled and their trucks freed. This cannot be undone.`}
+        message={
+          <>
+            <p>
+              All {remaining} remaining {remaining === 1 ? 'trip' : 'trips'} will be cancelled and their trucks freed. This cannot be undone.
+            </p>
+            {paidPrepaid && remaining > 0 && (
+              <p className="mt-2 font-semibold text-ink">
+                {o.customer?.name ?? 'The customer'} has already paid for these trips. <span className="num">{formatNaira(remaining * o.price_per_trip)}</span> will
+                be left as credit until finance refunds it or uses it.
+              </p>
+            )}
+          </>
+        }
         reasonLabel="Why is it cancelled?"
         confirmLabel="Cancel order"
         loading={cancelOrder.isPending}
@@ -248,7 +271,21 @@ function TripsSection({ order: o }: { order: OrderWithRefs }) {
       <ReasonDialog
         open={Boolean(cancelling)}
         title={`Cancel trip ${cancelling?.trip_number ?? ''}?`}
-        message={cancelling?.truck ? `Truck ${cancelling.truck.plate_number} and ${cancelling.driver?.full_name ?? 'the driver'} are freed. This cannot be undone.` : 'This cannot be undone.'}
+        message={
+          <>
+            <p>
+              {cancelling?.truck
+                ? `Truck ${cancelling.truck.plate_number} and ${cancelling.driver?.full_name ?? 'the driver'} are freed. This cannot be undone.`
+                : 'This cannot be undone.'}
+            </p>
+            {o.payment_terms === 'prepaid' && o.payment_id && (
+              <p className="mt-2 font-semibold text-ink">
+                {o.customer?.name ?? 'The customer'} has already paid for this trip. <span className="num">{formatNaira(o.price_per_trip)}</span> will be
+                left as credit until finance refunds it or uses it.
+              </p>
+            )}
+          </>
+        }
         reasonLabel="Why is it cancelled?"
         confirmLabel="Cancel trip"
         loading={cancelTrip.isPending}

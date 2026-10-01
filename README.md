@@ -54,7 +54,7 @@ Other scripts:
 - `npm run build` runs the type-check and production build into `dist/`.
 - `npm run lint` runs ESLint. It also blocks importing Supabase outside `src/services` and `src/lib`.
 - `npm run preview` serves the production build.
-- `npm run ui:check` builds the app against a mocked Supabase and renders every screen at 360px and 1280px, in light and dark mode. It fails on horizontal overflow, phone tap targets under 48px, pure-black text or JavaScript errors. Screenshots go to `scripts/ui-check/out/`. Set `PLAYWRIGHT_CHROMIUM_PATH` to use an installed Chromium; otherwise run `npx playwright install chromium` once.
+- `npm run ui:check` builds the app against a mocked Supabase and renders every screen at 360px (phone), 800px and 1024px (tablet and small laptop) and 1280px, in light and dark mode. It fails on horizontal overflow, phone tap targets under 48px, pure-black text or JavaScript errors. Screenshots go to `scripts/ui-check/out/`. Set `PLAYWRIGHT_CHROMIUM_PATH` to use an installed Chromium; otherwise run `npx playwright install chromium` once.
 - `npm run db:test` runs every migration, the seed (twice) and the role-by-role RLS tests on a throwaway **local** Postgres (`PGHOST`/`PGPORT`). It never touches Supabase.
 
 CI (`.github/workflows/ci.yml`) runs `npm ci`, lint, typecheck and build on every pull request.

@@ -4,7 +4,7 @@ import { ButtonLink, DataTable, FilterPills, PageHeader, SearchInput } from '@/c
 import { useDebounced } from '@/hooks/useDebounced'
 import { useRole } from '@/hooks/useRole'
 import { formatDateTime, formatNaira } from '@/lib/format'
-import { orderTotals, type OrderStatusFilter } from '@/services/orders'
+import { orderTotals, tripProgress, type OrderStatusFilter } from '@/services/orders'
 import { useOrders } from './api'
 import { OrderStatusPill } from './labels'
 
@@ -60,7 +60,7 @@ export function OrderListPage() {
           { key: 'route', header: 'Route', render: (o) => o.route?.name ?? '—' },
           {
             key: 'trips',
-            header: 'Trips done',
+            header: 'Delivered',
             align: 'right',
             render: (o) => {
               const t = orderTotals(o)
@@ -83,7 +83,7 @@ export function OrderListPage() {
               <>
                 <span>{o.route?.name ?? '—'}</span>
                 <span className="num">
-                  {t.done} of {t.live} trips done · {formatDateTime(o.created_at)}
+                  {tripProgress(t)} · {formatDateTime(o.created_at)}
                 </span>
               </>
             )

@@ -32,22 +32,39 @@ export function AssignTripModal({ trip, onClose }: { trip: AssignableTrip | null
   const board = useDispatchTrips()
   const open = Boolean(trip)
 
-  // Drivers and trucks already on another active trip.
+  // Drivers and trucks already on another active trip → the trip number they are on.
   const busy = useMemo(() => {
-    const d = new Set<string>()
-    const t = new Set<string>()
+    const d = new Map<string, string>()
+    const t = new Map<string, string>()
     for (const x of board.data ?? []) {
       if (x.id === trip?.id || !ACTIVE_TRIP_STATUSES.includes(x.status as TripStatus)) continue
-      if (x.driver_id) d.add(x.driver_id)
-      if (x.truck_id) t.add(x.truck_id)
+      if (x.driver_id) d.set(x.driver_id, x.trip_number)
+      if (x.truck_id) t.set(x.truck_id, x.trip_number)
     }
     return { d, t }
   }, [board.data, trip?.id])
 
-  const freeDrivers = (drivers.data ?? []).filter((d) => !busy.d.has(d.id))
-  const freeTrucks = (trucks.data ?? []).filter(
+  const allDrivers = drivers.data ?? []
+  const allTrucks = trucks.data ?? []
+  const freeDrivers = allDrivers.filter((d) => !busy.d.has(d.id))
+  const freeTrucks = allTrucks.filter(
     (t) => !busy.t.has(t.id) && (t.status === 'available' || t.status === 'on_trip' || t.id === trip?.truck_id),
   )
+  // Busy ones stay visible but greyed out, so the dispatcher sees why they cannot be picked.
+  const driverOptions = [
+    ...freeDrivers.map((d) => ({ value: d.id, label: d.truck ? `${d.full_name} · ${d.truck.plate_number}` : d.full_name })),
+    ...allDrivers.filter((d) => busy.d.has(d.id)).map((d) => ({ value: d.id, label: `${d.full_name} — on ${busy.d.get(d.id)}`, disabled: true })),
+  ]
+  const truckOptions = [
+    ...freeTrucks.map((t) => ({ value: t.id, label: t.plate_number })),
+    ...allTrucks
+      .filter((t) => !freeTrucks.includes(t))
+      .map((t) => ({
+        value: t.id,
+        label: `${t.plate_number} — ${busy.t.has(t.id) ? `on ${busy.t.get(t.id)}` : t.status === 'maintenance' ? 'in maintenance' : 'not available'}`,
+        disabled: true,
+      })),
+  ]
 
   const form = useForm<Form>({ resolver: zodResolver(schema), defaultValues: { driver_id: '', truck_id: '' } })
   useEffect(() => {
@@ -114,18 +131,24 @@ export function AssignTripModal({ trip, onClose }: { trip: AssignableTrip | null
             name="driver_id"
             label="Driver"
             required
-            placeholder={loading ? 'Loading drivers…' : freeDrivers.length ? 'Choose a driver' : 'No free drivers'}
-            options={freeDrivers.map((d) => ({ value: d.id, label: d.truck ? `${d.full_name} · ${d.truck.plate_number}` : d.full_name }))}
-            hint={!loading && freeDrivers.length === 0 ? 'Every active driver is on a trip.' : undefined}
+            placeholder={loading ? 'Loading drivers…' : freeDrivers.length ? 'Choose a driver' : 'All drivers are on trips'}
+            options={driverOptions}
+            hint={
+              !loading && freeDrivers.length === 0
+                ? 'Every active driver is already on a trip (shown greyed out). Unassign or finish a trip first.'
+                : busy.d.size > 0
+                  ? 'Drivers already on a trip are greyed out.'
+                  : undefined
+            }
           />
           <SelectField
             form={form}
             name="truck_id"
             label="Truck"
             required
-            placeholder={loading ? 'Loading trucks…' : freeTrucks.length ? 'Choose a truck' : 'No free trucks'}
-            options={freeTrucks.map((t) => ({ value: t.id, label: t.plate_number }))}
-            hint={truckHint ?? 'Trucks in maintenance or already on a trip are not listed.'}
+            placeholder={loading ? 'Loading trucks…' : freeTrucks.length ? 'Choose a truck' : 'All trucks are busy'}
+            options={truckOptions}
+            hint={truckHint ?? 'Trucks on a trip or in maintenance are greyed out.'}
           />
         </FormGrid>
         {truck?.reference_load_photo_url && (
