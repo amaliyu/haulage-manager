@@ -91,15 +91,18 @@ const orders = [
   order('o2', 'ORD-2026-0006', customers[0], sites[0], routes[0], 'in_progress', 3, { age: 0.5, payment: null }),
   order('o3', 'ORD-2026-0005', customers[0], sites[0], routes[1], 'cancelled', 1, { age: 2, cancel_reason: 'Site closed for inspection' }),
   order('o4', 'ORD-2026-0004', customers[1], sites[2], routes[0], 'in_progress', 2, { age: 0.3, payment_id: 'pay1', payment: { id: 'pay1', amount: 620000, method: 'cash', bank_reference: null, received_at: iso(0.3) } }),
+  order('o5', 'ORD-2026-0003', customers[0], sites[0], routes[0], 'in_progress', 4, { age: 0.8 }),
 ]
 const tripRow = (id, num, o, status, extra = {}) => ({
   id, trip_number: num, order_id: o.id, truck_id: null, driver_id: null, source_id: src[0].id, status, price: o.price_per_trip,
   material_cost: 65000, crew_cost: 15000, diesel_litres_issued: 0, diesel_cost: 0, repayment_allocation: 0, loader_receipt_no: null,
   assigned_at: null, loaded_at: null, delivered_at: null, settled_at: null, cancel_reason: null, created_at: o.created_at, updated_at: null, created_by: U.disp,
-  driver: null, truck: null,
+  in_transit_at: null, delivery_check: null, delivery_distance_m: null, office_recorded: false, breakdown_load: null, replaces_trip_id: null,
+  driver: null, truck: null, photos: [],
   order: { id: o.id, order_number: o.order_number, status: o.status, payment_terms: o.payment_terms, material: o.material, created_at: o.created_at, customer: { id: o.customer.id, name: o.customer.name }, site: o.site, route: { id: o.route.id, name: o.route.name } },
   ...extra,
 })
+const photo = (id, type, tripId, daysAgo) => ({ id, photo_type: type, storage_path: `trips/${tripId}/${type}-1.jpg`, taken_at: iso(daysAgo) })
 const crew = (d, t) => ({ driver_id: d.id, truck_id: t.id, driver: { id: d.id, full_name: d.full_name, phone: d.phone }, truck: { id: t.id, plate_number: t.plate_number, reference_load_photo_url: t.reference_load_photo_url } })
 const trips = [
   tripRow('tr1', 'TRP-2026-000021', orders[0], 'pending'),
@@ -110,6 +113,16 @@ const trips = [
   tripRow('tr6', 'TRP-2026-000015', orders[2], 'cancelled', { cancel_reason: 'Site closed for inspection' }),
   tripRow('tr7', 'TRP-2026-000013', orders[3], 'assigned', { ...crew(drivers[1], trucks[0]), assigned_at: iso(0.2) }),
   tripRow('tr8', 'TRP-2026-000014', orders[3], 'cancelled', { cancel_reason: 'Customer reduced the order' }),
+  // Step 4: progress, flags, photos and a breakdown on o5
+  tripRow('tr9', 'TRP-2026-000009', orders[4], 'in_transit', { ...crew(drivers[1], trucks[1]), assigned_at: iso(0.3), loaded_at: iso(0.25), in_transit_at: iso(0.2), office_recorded: true,
+    photos: [photo('ph1', 'loading', 'tr9', 0.25)] }),
+  tripRow('tr10', 'TRP-2026-000010', orders[4], 'delivered', { ...crew(drivers[0], trucks[0]), assigned_at: iso(0.7), loaded_at: iso(0.65), delivered_at: iso(0.6), delivery_check: 'outside', delivery_distance_m: 412,
+    photos: [photo('ph2', 'delivery', 'tr10', 0.6)] }),
+  tripRow('tr11', 'TRP-2026-000011', orders[4], 'delivered', { ...crew(drivers[0], trucks[0]), assigned_at: iso(0.75), loaded_at: iso(0.7), delivered_at: iso(0.68), delivery_check: 'inside', delivery_distance_m: 85,
+    photos: [photo('ph3', 'loading', 'tr11', 0.7), photo('ph4', 'delivery', 'tr11', 0.68)] }),
+  tripRow('tr12', 'TRP-2026-000012', orders[4], 'cancelled', { ...crew(drivers[1], trucks[2]), assigned_at: iso(0.5), loaded_at: iso(0.45), breakdown_load: 'moved',
+    cancel_reason: 'Breakdown: Gearbox failed at Zuba · Load moved to the new truck', photos: [photo('ph5', 'loading', 'tr12', 0.45)] }),
+  tripRow('tr13', 'TRP-2026-000016', orders[4], 'pending', { replaces_trip_id: 'tr12' }),
 ]
 for (const o of orders) o.trips = trips.filter((t) => t.order_id === o.id).map((t) => ({ id: t.id, status: t.status }))
 const event = (id, t, type, note, minsAgo) => ({ id, trip_id: t.id, event_type: type, actor_id: U.disp, occurred_at: new Date(now - minsAgo * 60000).toISOString(), latitude: null, longitude: null, note, created_at: iso(0), updated_at: null, created_by: U.disp, trip: { trip_number: t.trip_number, order_id: t.order_id }, actor: { full_name: 'Chinedu Okafor' } })
@@ -118,17 +131,28 @@ const trip_events = [
   event('e2', trips[4], 'assigned', 'Assigned to Emeka Nwosu, truck ABJ-482-KW', 800),
   event('e1', trips[2], 'created', null, 900),
 ]
-const myTrips = [{
-  trip_id: 'tr3', trip_number: 'TRP-2026-000018', status: 'assigned', assigned_at: trips[2].assigned_at, order_number: 'ORD-2026-0006', material: 'sharp_sand',
+const myTrip = (id, num, status, extra = {}) => ({
+  trip_id: id, trip_number: num, status, assigned_at: trips[2].assigned_at, loaded_at: null, in_transit_at: null, delivered_at: null, loader_receipt_no: null,
+  delivery_check: null, delivery_distance_m: null, order_number: 'ORD-2026-0006', material: 'sharp_sand',
   customer_name: customers[0].name, customer_phone: customers[0].phone, site_name: sites[0].name, site_area: sites[0].area, site_directions: sites[0].directions,
-  site_latitude: sites[0].latitude, site_longitude: sites[0].longitude, route_name: routes[0].name, source_name: src[0].name, truck_plate: 'GWA-771-XY',
-}]
+  site_latitude: sites[0].latitude, site_longitude: sites[0].longitude, site_geofence_m: 300, route_name: routes[0].name, source_name: src[0].name,
+  truck_plate: 'ABJ-482-KW', truck_reference_photo: 'trucks/t1/reference.jpg', loading_photos: 0, delivery_photos: 0, ...extra,
+})
+const myTripsFor = (status) => [
+  myTrip('tr3', 'TRP-2026-000018', status ?? 'assigned', status && status !== 'assigned' ? { loaded_at: iso(0.05) } : {}),
+  myTrip('tr11', 'TRP-2026-000011', 'delivered', { delivered_at: iso(0.02), delivery_check: 'inside', loading_photos: 1, delivery_photos: 1 }),
+]
 const tables = { profiles, material_sources: src, routes, route_prices: r1prices, customers, customer_sites: sites, trucks, drivers, diesel_prices: diesel, orders, trips, trip_events }
 
 // a tiny 1x1 jpeg
 const JPEG = Buffer.from('/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAABAAEBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA=', 'base64')
 
-async function setup(page, { user = 'admin', mode = 'ok', theme = 'light' } = {}) {
+async function setup(page, { user = 'admin', mode = 'ok', theme = 'light', myStatus, geoDenied } = {}) {
+  if (geoDenied) {
+    await page.addInitScript(() => {
+      navigator.geolocation.getCurrentPosition = (_ok, fail) => setTimeout(() => fail({ code: 1, PERMISSION_DENIED: 1, TIMEOUT: 3 }), 50)
+    })
+  }
   await page.addInitScript(({ uid, theme, profile }) => {
     const session = { access_token: 'x.y.z', refresh_token: 'r', token_type: 'bearer', expires_in: 3600, expires_at: Math.floor(Date.now() / 1000) + 86400, user: { id: uid, email: 'user@example.ng', aud: 'authenticated', role: 'authenticated', app_metadata: {}, user_metadata: {}, created_at: new Date().toISOString() } }
     if (uid) localStorage.setItem('sb-test-auth-token', JSON.stringify(session))
@@ -138,11 +162,14 @@ async function setup(page, { user = 'admin', mode = 'ok', theme = 'light' } = {}
     const req = route.request()
     const url = new URL(req.url())
     const single = (req.headers()['accept'] || '').includes('vnd.pgrst.object')
-    if (url.pathname.startsWith('/storage/v1/object/sign/')) return route.fulfill({ json: { signedURL: '/object/sign/img.jpg?token=t' } })
+    if (url.pathname.startsWith('/storage/v1/object/sign/') && req.method() === 'POST') return route.fulfill({ json: { signedURL: '/object/sign/img.jpg?token=t' } })
+    if (url.pathname.startsWith('/storage/v1/object/') && req.method() === 'POST') return route.fulfill({ json: { Key: url.pathname, Id: 'obj1' } })
     if (url.pathname.startsWith('/storage/v1/object/')) return route.fulfill({ body: JPEG, contentType: 'image/jpeg' })
     if (url.pathname.startsWith('/auth/')) return route.fulfill({ json: {} })
     const table = url.pathname.replace('/rest/v1/', '')
-    if (table === 'rpc/my_trips') return route.fulfill({ json: mode === 'empty' ? [] : myTrips })
+    if (table === 'rpc/my_trips') return route.fulfill({ json: mode === 'empty' ? [] : myTripsFor(myStatus) })
+    if (table === 'rpc/report_breakdown') return route.fulfill({ json: { ...trips.find((t) => t.id === 'tr13'), id: 'tr14', trip_number: 'TRP-2026-000030', replaces_trip_id: 'tr9' } })
+    if (table === 'rpc/record_trip_step') return route.fulfill({ json: trips[2] })
     if (table.startsWith('rpc/')) return route.fulfill({ json: { id: 'o1', order_number: 'ORD-2026-0008' } })
     if (req.method() !== 'GET' && req.method() !== 'HEAD') return route.fulfill({ status: 201, json: single ? {} : [] })
     if (table === 'profiles' && url.searchParams.get('id')) {
@@ -284,12 +311,46 @@ const SCENES = [
       await p.locator('button:visible', { hasText: 'Cancel trip' }).first().click()
       await p.getByText('has already paid for this trip').waitFor({ timeout: 2000 })
     }],
-    ['dispatch', '/dispatch', {}, async (p) => { await p.getByText('Waiting for payment').waitFor({ timeout: 2000 }) }],
+    ['dispatch', '/dispatch', {}, async (p) => {
+      await p.getByText('Waiting for payment').waitFor({ timeout: 2000 })
+      await p.locator(':text-is("Recorded by office"):visible').first().waitFor({ timeout: 2000 })
+      await p.locator('button:visible', { hasText: /Broke down|Truck broke down/ }).first().waitFor({ timeout: 2000 })
+    }],
     ['dispatch-empty', '/dispatch', { mode: 'empty' }],
     ['dispatch-assign', '/dispatch', {}, async (p) => {
       await p.getByRole('button', { name: /Dispatch/ }).first().click()
       if (!(await p.locator('option[disabled]', { hasText: 'Ibrahim Danjuma — on TRP-2026-000018' }).count())) throw new Error('busy driver not shown greyed out')
     }],
+    ['order-progress', '/orders/o5', {}, async (p) => {
+      for (const t of ['Outside site (412m)', 'No load photo', 'Recorded by office', 'Inside site', 'Broke down · load moved', 'Replacement'])
+        await p.locator(`:text-is("${t}"):visible`).first().waitFor({ timeout: 2000 })
+      await p.getByRole('heading', { name: 'Photos' }).waitFor({ timeout: 2000 })
+      await p.getByText('Reference full load').first().waitFor({ timeout: 2000 })
+    }],
+    ['office-step', '/orders/o5', {}, async (p) => {
+      let body = null
+      p.on('request', (r) => { if (r.url().includes('/rpc/record_trip_step')) body = r.postDataJSON() })
+      await p.locator('button:visible', { hasText: 'Mark delivered' }).first().click()
+      const confirm = p.getByRole('button', { name: 'Mark delivered' }).last()
+      if (await confirm.isEnabled()) throw new Error('office step allowed without a reason')
+      await p.getByLabel(/Why is the office recording this/).fill('Driver phone is dead')
+      await confirm.click()
+      await p.getByText('marked delivered').waitFor({ timeout: 2000 })
+      if (!body || body.p_step !== 'delivered' || body.p_reason !== 'Driver phone is dead' || body.p_trip_id !== 'tr9') throw new Error('wrong rpc body ' + JSON.stringify(body))
+    }],
+    ['breakdown', '/orders/o5', {}, async (p) => {
+      let body = null
+      p.on('request', (r) => { if (r.url().includes('/rpc/report_breakdown')) body = r.postDataJSON() })
+      await p.locator('button:visible', { hasText: 'Truck broke down' }).first().click()
+      await p.getByLabel(/What happened/).fill('Gearbox failed at Zuba')
+      const go = p.getByRole('button', { name: 'Cancel trip and replace' })
+      if (await go.isEnabled()) throw new Error('breakdown allowed without choosing the load')
+      await p.getByRole('radio', { name: /Load moved to the new truck/ }).check({ force: true })
+      await go.click()
+      await p.getByRole('heading', { name: 'Dispatch TRP-2026-000030' }).waitFor({ timeout: 2000 })
+      if (!body || body.p_load !== 'moved' || body.p_trip_id !== 'tr9') throw new Error('wrong rpc body ' + JSON.stringify(body))
+    }],
+    ['breakdown-dialog', '/orders/o5', {}, async (p) => { await p.locator('button:visible', { hasText: 'Truck broke down' }).first().click() }],
     ['diesel', '/diesel', {}],
     ['diesel-modal', '/diesel', {}, async (p) => { await p.getByRole('button', { name: 'Record price' }).click(); await p.getByLabel('Pump price per litre').fill('1800') }],
     ['trucks', '/trucks', {}],
@@ -302,7 +363,55 @@ const SCENES = [
     ['more-sheet', '/', {}, async (p) => { const m = p.getByRole('button', { name: 'More' }); if (await m.isVisible()) await m.click() }],
     ['dispatcher-customers', '/customers', { user: 'disp' }],
     ['dispatcher-users-blocked', '/users', { user: 'disp' }],
-    ['driver-home', '/', { user: 'drv' }],
+    ['driver-home', '/', { user: 'drv' }, async (p) => {
+      await p.getByRole('button', { name: "I've loaded" }).waitFor({ timeout: 2000 })
+      await p.getByText('Done today').waitFor({ timeout: 2000 })
+    }],
+    ['driver-loaded-sheet', '/', { user: 'drv', geo: { latitude: 8.8765, longitude: 7.0123, accuracy: 12 } }, async (p) => {
+      await p.getByRole('button', { name: "I've loaded" }).click()
+      await p.getByText('A full load on this truck looks like this').waitFor({ timeout: 2000 })
+      await p.setInputFiles('input[type=file]', { name: 'load.jpg', mimeType: 'image/jpeg', buffer: JPEG })
+      await p.getByAltText('Your photo').waitFor({ timeout: 3000 })
+      await p.getByLabel('Loader receipt no.').fill('KS-4471')
+    }],
+    ['driver-loaded-confirm', '/', { user: 'drv', geo: { latitude: 8.8765, longitude: 7.0123, accuracy: 12 } }, async (p) => {
+      let body = null; let uploaded = 0; let photoRow = null
+      p.on('request', (r) => {
+        if (r.url().includes('/rpc/record_trip_step')) body = r.postDataJSON()
+        if (r.url().includes('/storage/v1/object/trip-photos/trips/tr3/loading-') && r.method() === 'POST') uploaded++
+        if (r.url().includes('/rest/v1/trip_photos') && r.method() === 'POST') photoRow = r.postDataJSON()
+      })
+      await p.getByRole('button', { name: "I've loaded" }).click()
+      await p.setInputFiles('input[type=file]', { name: 'load.jpg', mimeType: 'image/jpeg', buffer: JPEG })
+      await p.getByAltText('Your photo').waitFor({ timeout: 3000 })
+      await p.getByLabel('Loader receipt no.').fill('KS-4471')
+      await p.getByRole('button', { name: 'Confirm loaded' }).click()
+      await p.getByText('Loading recorded.').waitFor({ timeout: 3000 })
+      if (uploaded !== 1) throw new Error(`expected 1 upload, got ${uploaded}`)
+      if (!photoRow || photoRow.photo_type !== 'loading' || photoRow.trip_id !== 'tr3' || photoRow.uploaded_by !== U.drv) throw new Error('bad photo row ' + JSON.stringify(photoRow))
+      if (!body || body.p_step !== 'loaded' || body.p_loader_receipt_no !== 'KS-4471' || body.p_lat !== 8.8765) throw new Error('wrong rpc body ' + JSON.stringify(body))
+    }],
+    ['driver-transit', '/', { user: 'drv', myStatus: 'loaded' }, async (p) => {
+      await p.getByRole('button', { name: "I've left the loading site" }).click()
+      await p.getByRole('button', { name: 'Confirm left site' }).waitFor({ timeout: 2000 })
+    }],
+    ['driver-deliver-inside', '/', { user: 'drv', myStatus: 'in_transit', geo: { latitude: 9.1079, longitude: 7.4053, accuracy: 15 } }, async (p) => {
+      await p.getByRole('button', { name: "I've delivered" }).click()
+      await p.getByText('You are at the site.').waitFor({ timeout: 3000 })
+    }],
+    ['driver-deliver-outside', '/', { user: 'drv', myStatus: 'in_transit', geo: { latitude: 9.1176, longitude: 7.4051, accuracy: 20 } }, async (p) => {
+      await p.getByRole('button', { name: "I've delivered" }).click()
+      await p.getByText('from the site').waitFor({ timeout: 3000 })
+    }],
+    ['driver-deliver-nogps', '/', { user: 'drv', myStatus: 'in_transit', geoDenied: true }, async (p) => {
+      let body = null
+      p.on('request', (r) => { if (r.url().includes('/rpc/record_trip_step')) body = r.postDataJSON() })
+      await p.getByRole('button', { name: "I've delivered" }).click()
+      await p.getByText('Location off').waitFor({ timeout: 3000 })
+      await p.getByRole('button', { name: 'Confirm delivered' }).click()
+      await p.getByText('Delivery recorded').waitFor({ timeout: 3000 })
+      if (!body || body.p_step !== 'delivered' || 'p_lat' in body) throw new Error('wrong rpc body ' + JSON.stringify(body))
+    }],
     ['driver-home-empty', '/', { user: 'drv', mode: 'empty' }],
 ]
 
@@ -321,7 +430,10 @@ const SCENES = [
     const scenes = (dist === 'dist-noenv' ? NOENV_SCENES : SCENES).filter(([n]) => !only.length || only.includes(n))
     for (const [name, url, opts, act] of scenes) {
       for (const vw of [360, 800, 1024, 1280]) for (const theme of ['light', 'dark']) {
-        const ctx = await browser.newContext({ viewport: { width: vw, height: 800 }, deviceScaleFactor: vw === 360 ? 2 : 1, colorScheme: theme })
+        const ctx = await browser.newContext({
+          viewport: { width: vw, height: 800 }, deviceScaleFactor: vw === 360 ? 2 : 1, colorScheme: theme,
+          ...(opts.geo ? { geolocation: opts.geo, permissions: ['geolocation'] } : {}),
+        })
         const page = await ctx.newPage()
         const errs = []
         page.on('pageerror', (e) => errs.push(e.message))

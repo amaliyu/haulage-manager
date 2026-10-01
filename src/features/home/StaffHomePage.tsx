@@ -9,7 +9,7 @@ import { useRoutes } from '@/features/routes/api'
 import { useTrucks } from '@/features/trucks/api'
 import { useDrivers } from '@/features/drivers/api'
 import { useDieselPrices } from '@/features/diesel/api'
-import { useDispatchTrips } from '@/features/orders/api'
+import { useDeliveredToday, useDispatchTrips } from '@/features/orders/api'
 import { ACTIVE_TRIP_STATUSES, type TripStatus } from '@/services/trips'
 
 export function StaffHomePage() {
@@ -20,6 +20,7 @@ export function StaffHomePage() {
   const drivers = useDrivers({ active: 'active' })
   const diesel = useDieselPrices()
   const board = useDispatchTrips()
+  const delivered = useDeliveredToday()
 
   const pump = diesel.data?.find((d) => d.effective_to === null)
   const unpriced = routes.data?.filter((r) => !r.current_price) ?? []
@@ -27,7 +28,7 @@ export function StaffHomePage() {
   const noPhoto = trucks.data?.filter((t) => !t.reference_load_photo_url).length ?? 0
   const unassigned = drivers.data?.filter((d) => !d.assigned_truck_id).length ?? 0
   const credit = customers.data?.filter((c) => c.payment_terms === 'credit').length ?? 0
-  const failed = [customers, routes, trucks, drivers, diesel, board].filter((x) => x.isError)
+  const failed = [customers, routes, trucks, drivers, diesel, board, delivered].filter((x) => x.isError)
   const b = board.data ?? []
   const toDispatch = b.filter((t) => t.status === 'pending' && (t.order.status === 'ready' || t.order.status === 'in_progress')).length
   const onRoad = b.filter((t) => ACTIVE_TRIP_STATUSES.includes(t.status as TripStatus)).length
@@ -64,6 +65,19 @@ export function StaffHomePage() {
           loading={board.isLoading}
           value={board.data ? unpaidOrders : '—'}
           context={unpaidOrders ? 'Prepaid orders locked until paid' : 'No unpaid orders'}
+        />
+        <MetricTile
+          label="Delivered today"
+          to="/orders"
+          loading={delivered.isLoading}
+          value={delivered.data ? delivered.data.total : '—'}
+          context={
+            !delivered.data?.total
+              ? 'No deliveries yet today'
+              : delivered.data.flagged
+                ? `${delivered.data.flagged} outside the site or without location`
+                : 'None flagged'
+          }
         />
       </div>
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">

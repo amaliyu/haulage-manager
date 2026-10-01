@@ -113,14 +113,18 @@ do $$ begin
  assert (select count(*) from trips)=1, 'driver trips';
  assert (select count(*) from drivers)=1; assert (select count(*) from trucks)=1;
  assert (select count(*) from customers)=0; assert (select count(*) from orders)=0;
- update trips set status='loaded', loaded_at=now(), loader_receipt_no='R1' where id='60000000-0000-0000-0000-000000000001'; assert found;
+ -- Step 4: steps go through record_trip_step only
+ begin update trips set status='loaded', loaded_at=now(), loader_receipt_no='R1' where id='60000000-0000-0000-0000-000000000001'; raise exception 'driver direct status';
+ exception when insufficient_privilege then null; end;
  update trips set status='loaded' where id='60000000-0000-0000-0000-000000000002'; assert not found, 'other driver trip';
  begin update trips set price=1 where id='60000000-0000-0000-0000-000000000001'; raise exception 'driver price';
  exception when insufficient_privilege then null; end;
  begin update trips set status='settled' where id='60000000-0000-0000-0000-000000000001'; raise exception 'driver settled';
  exception when insufficient_privilege then null; end;
- insert into trip_events(trip_id,event_type,actor_id) values ('60000000-0000-0000-0000-000000000001','loaded','00000000-0000-0000-0000-0000000000a1');
- begin insert into trip_events(trip_id,event_type,actor_id) values ('60000000-0000-0000-0000-000000000002','loaded','00000000-0000-0000-0000-0000000000a1'); raise exception 'event other trip';
+ insert into trip_events(trip_id,event_type,actor_id,note) values ('60000000-0000-0000-0000-000000000001','note','00000000-0000-0000-0000-0000000000a1','Tyre check');
+ begin insert into trip_events(trip_id,event_type,actor_id) values ('60000000-0000-0000-0000-000000000001','delivered','00000000-0000-0000-0000-0000000000a1'); raise exception 'driver faked a step event';
+ exception when insufficient_privilege then null; end;
+ begin insert into trip_events(trip_id,event_type,actor_id) values ('60000000-0000-0000-0000-000000000002','note','00000000-0000-0000-0000-0000000000a1'); raise exception 'event other trip';
  exception when insufficient_privilege then null; end;
  insert into trip_photos(trip_id,photo_type,storage_path,uploaded_by) values ('60000000-0000-0000-0000-000000000001','loading','trips/60000000-0000-0000-0000-000000000001/loading-1.jpg','00000000-0000-0000-0000-0000000000a1');
  insert into storage.objects(bucket_id,name) values ('trip-photos','trips/60000000-0000-0000-0000-000000000001/loading-1700000000.jpg');
@@ -333,6 +337,175 @@ do $$ begin
  assert not has_function_privilege('anon', 'public.create_order(uuid,uuid,uuid,int,text)', 'execute');
  assert not has_function_privilege('authenticated', 'public.trips_dispatch_rules()', 'execute');
  assert not has_function_privilege('authenticated', 'public.sync_order_status(uuid)', 'execute');
+end $$;
+
+-- ============================ Step 4: trip progress and breakdowns ===========
+select pg_temp.as_system();
+update customer_sites set latitude=9.100000, longitude=7.400000, geofence_radius_m=300
+ where id='40000000-0000-0000-0000-000000000004';
+
+\echo '--- step 4: who may record a step'
+select pg_temp.act('00000000-0000-0000-0000-0000000000a2');
+do $$ declare t uuid := (select id from trips where order_id=(select id from orders where notes='S3-D')); begin
+ perform pg_temp.expect_err(format('select public.record_trip_step(%L,%L)', t, 'loaded'), 'not assigned to you');
+end $$;
+select pg_temp.act('00000000-0000-0000-0000-00000000000f');
+do $$ declare t uuid := (select id from trips where order_id=(select id from orders where notes='S3-D')); begin
+ perform pg_temp.expect_err(format('select public.record_trip_step(%L,%L)', t, 'loaded'), 'Only the driver or the office');
+ perform pg_temp.expect_err(format('select public.report_breakdown(%L,%L,%L)', t, 'x', 'lost'), 'Only an admin or dispatcher');
+end $$;
+
+\echo '--- step 4: driver steps in order; skipping in transit is allowed; inside site'
+select pg_temp.act('00000000-0000-0000-0000-0000000000a1');
+do $$ declare t uuid := (select trip_id from public.my_trips() where status='assigned'); r trips; begin
+ assert t is not null, 'my_trips assigned';
+ perform pg_temp.expect_err(format('update trips set status=%L where id=%L', 'loaded', t), 'Use the buttons');
+ perform pg_temp.expect_err(format('select public.record_trip_step(%L,%L)', t, 'delivered'), 'is assigned; it can''t be marked delivered');
+ perform pg_temp.expect_err(format('select public.record_trip_step(%L,%L)', t, 'settled'), 'Unknown trip step');
+ r := public.record_trip_step(t, 'loaded', 9.05, 7.45, 15, ' R-77 ');
+ assert r.status='loaded' and r.loaded_at is not null and r.loader_receipt_no='R-77' and not r.office_recorded;
+ r := public.record_trip_step(t, 'loaded');  -- repeated tap
+ assert r.status='loaded';
+ assert (select count(*) from trip_events where trip_id=t and event_type='loaded')=1;
+ assert (select note from trip_events where trip_id=t and event_type='loaded') = 'GPS ±15m · Receipt R-77';
+ assert (select status from public.my_trips() where trip_id=t)='loaded';
+ r := public.record_trip_step(t, 'delivered', 9.101, 7.4, 20);
+ assert r.status='delivered' and r.delivered_at is not null and r.in_transit_at is null;
+ assert r.delivery_check='inside', r.delivery_check;
+ assert r.delivery_distance_m between 105 and 118, r.delivery_distance_m;
+ assert (select note from trip_events where trip_id=t and event_type='delivered') like 'Inside site · GPS ±20m';
+ assert (select latitude from trip_events where trip_id=t and event_type='delivered')=9.101;
+ perform pg_temp.expect_err(format('select public.record_trip_step(%L,%L)', t, 'in_transit'), 'is delivered');
+end $$;
+select pg_temp.as_system();
+do $$ begin
+ assert (select status from trucks where id='10000000-0000-0000-0000-000000000001')='available', 'truck freed';
+ assert (select status from orders where notes='S3-D')='completed', 'order completed';
+end $$;
+
+\echo '--- step 4: outside, no location, no site pin'
+select pg_temp.act('00000000-0000-0000-0000-00000000000d');
+do $$ declare o orders; begin
+ o := public.create_order('30000000-0000-0000-0000-000000000004','40000000-0000-0000-0000-000000000004',
+        (select id from routes where destination_area='Gwarinpa' order by name limit 1), 4, 'S4-A');
+ perform public.assign_trip((select id from trips where order_id=o.id order by trip_number limit 1),
+        '20000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000001');
+end $$;
+select pg_temp.act('00000000-0000-0000-0000-0000000000a1');
+do $$ declare t uuid := (select trip_id from public.my_trips() where status='assigned'); r trips; begin
+ perform public.record_trip_step(t, 'loaded');
+ r := public.record_trip_step(t, 'in_transit');
+ assert r.status='in_transit' and r.in_transit_at is not null;
+ r := public.record_trip_step(t, 'delivered', 9.11, 7.4, 500);
+ assert r.delivery_check='outside' and r.delivery_distance_m between 1100 and 1125, r.delivery_distance_m;
+ assert (select note from trip_events where trip_id=t and event_type='delivered') like '1___m from site · GPS ±500m';
+ r := public.record_trip_step(t, 'delivered', 9.1, 7.4, 5);  -- repeated tap changes nothing
+ assert r.delivery_check='outside' and (select count(*) from trip_events where trip_id=t and event_type='delivered')=1;
+end $$;
+select pg_temp.act('00000000-0000-0000-0000-00000000000d');
+do $$ begin perform public.assign_trip((select id from trips where order_id=(select id from orders where notes='S4-A') and status='pending' order by trip_number limit 1),
+        '20000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000001'); end $$;
+select pg_temp.act('00000000-0000-0000-0000-0000000000a1');
+do $$ declare t uuid := (select trip_id from public.my_trips() where status='assigned'); r trips; begin
+ perform public.record_trip_step(t, 'loaded');
+ perform pg_temp.expect_err(format('select public.record_trip_step(%L,%L,%s,%s)', t, 'delivered', 91, 7), 'Location is not valid');
+ r := public.record_trip_step(t, 'delivered');
+ assert r.delivery_check='no_location' and r.delivery_distance_m is null;
+end $$;
+select pg_temp.act('00000000-0000-0000-0000-00000000000d');
+do $$ begin perform public.assign_trip((select id from trips where order_id=(select id from orders where notes='S4-A') and status='pending' order by trip_number limit 1),
+        '20000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000001'); end $$;
+select pg_temp.as_system();
+update customer_sites set latitude=null, longitude=null where id='40000000-0000-0000-0000-000000000004';
+select pg_temp.act('00000000-0000-0000-0000-0000000000a1');
+do $$ declare t uuid := (select trip_id from public.my_trips() where status='assigned'); r trips; begin
+ perform public.record_trip_step(t, 'loaded');
+ r := public.record_trip_step(t, 'delivered', 9.1, 7.4, 10);
+ assert r.delivery_check='no_site_pin';
+ assert (select count(*) from public.my_trips() where status='delivered')=4, 'done today';
+ assert (select count(*) from public.my_trips() where status in ('assigned','loaded','in_transit'))=0;
+end $$;
+select pg_temp.as_system();
+update trips set delivered_at = now() - interval '2 days' where id=(select id from trips where order_id=(select id from orders where notes='S3-D'));
+select pg_temp.act('00000000-0000-0000-0000-0000000000a1');
+do $$ begin assert (select count(*) from public.my_trips())=3, 'yesterday hidden'; end $$;
+select pg_temp.act('00000000-0000-0000-0000-0000000000a2');
+do $$ begin assert (select count(*) from public.my_trips())=0, 'other driver sees done trips'; end $$;
+
+\echo '--- step 4: office records a step with a reason'
+select pg_temp.act('00000000-0000-0000-0000-00000000000d');
+do $$ declare t uuid; r trips; begin
+ select id into t from trips where order_id=(select id from orders where notes='S4-A') and status='pending';
+ perform public.assign_trip(t, '20000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000001');
+ perform pg_temp.expect_err(format('select public.report_breakdown(%L,%L,%L)', t, 'x', 'lost'), 'Only a loaded or moving trip');
+ perform pg_temp.expect_err(format('select public.record_trip_step(%L,%L)', t, 'loaded'), 'Give a reason');
+ r := public.record_trip_step(t, 'loaded', 9.0, 7.0, 5, 'R-9', 'Driver phone is dead');
+ assert r.status='loaded' and r.office_recorded and r.loader_receipt_no='R-9';
+ assert (select note from trip_events where trip_id=t and event_type='loaded')='Recorded by office: Driver phone is dead · Receipt R-9';
+ assert (select latitude from trip_events where trip_id=t and event_type='loaded') is null, 'office GPS ignored';
+ perform pg_temp.expect_err(format('update trips set status=%L where id=%L', 'delivered', t), 'can no longer be changed');
+ perform pg_temp.expect_err(format('select public.cancel_trip(%L,%L)', t, 'x'), 'can no longer be cancelled');
+end $$;
+
+\echo '--- step 4: breakdown (load moved) adds a replacement trip'
+do $$ declare o orders; t uuid; n trips; begin
+ select * into o from orders where notes='S4-A';
+ select id into t from trips where order_id=o.id and status='loaded';
+ perform pg_temp.expect_err(format('select public.report_breakdown(%L,%L,%L)', t, ' ', 'moved'), 'Say what happened');
+ perform pg_temp.expect_err(format('select public.report_breakdown(%L,%L,%L)', t, 'Gearbox', 'x'), 'moved to another truck or lost');
+ n := public.report_breakdown(t, 'Gearbox failed at Zuba', 'moved');
+ assert n.status='pending' and n.replaces_trip_id=t and n.price=o.price_per_trip and n.material_cost=0;
+ assert (select status from trips where id=t)='cancelled';
+ assert (select breakdown_load from trips where id=t)='moved';
+ assert (select cancel_reason from trips where id=t)='Breakdown: Gearbox failed at Zuba · Load moved to the new truck';
+ assert (select material_cost from trips where id=t) > 0, 'original keeps material cost';
+ assert (select status from trucks where id='10000000-0000-0000-0000-000000000001')='maintenance';
+ assert (select status from orders where id=o.id)='in_progress';
+ assert (select count(*) from trips where order_id=o.id and status<>'cancelled')=o.trips_ordered;
+ assert (select count(*) from trip_events where trip_id=n.id and note like 'Replaces TRP-%(breakdown)')=1;
+ perform pg_temp.expect_err(format('select public.assign_trip(%L,%L,%L)', n.id,'20000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000001'), 'maintenance');
+ perform public.assign_trip(n.id,'20000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002');
+end $$;
+select pg_temp.act('00000000-0000-0000-0000-0000000000a1');
+do $$ declare t uuid := (select trip_id from public.my_trips() where status='assigned'); begin
+ assert (select truck_plate from public.my_trips() where trip_id=t)='ABJ-222-XY';
+ perform public.record_trip_step(t, 'loaded');
+ perform public.record_trip_step(t, 'delivered');
+end $$;
+select pg_temp.as_system();
+do $$ begin assert (select status from orders where notes='S4-A')='completed'; end $$;
+
+\echo '--- step 4: breakdown on a paid prepaid order (load lost) stays paid'
+select pg_temp.act('00000000-0000-0000-0000-00000000000d');
+do $$ declare o orders; begin
+ o := public.create_order('30000000-0000-0000-0000-000000000001','40000000-0000-0000-0000-000000000001',
+        (select id from routes where destination_area='Gwarinpa' order by name limit 1), 1, 'S4-P');
+ assert o.status='awaiting_payment';
+end $$;
+select pg_temp.act('00000000-0000-0000-0000-00000000000f');
+do $$ begin perform public.record_order_payment((select id from orders where notes='S4-P'),
+        (select price_per_trip from orders where notes='S4-P'), 'cash', null, now()); end $$;
+select pg_temp.act('00000000-0000-0000-0000-00000000000d');
+do $$ declare o orders; t uuid; n trips; begin
+ select * into o from orders where notes='S4-P';
+ select id into t from trips where order_id=o.id;
+ perform public.assign_trip(t,'20000000-0000-0000-0000-000000000003','10000000-0000-0000-0000-000000000003');
+ perform public.record_trip_step(t, 'loaded', null, null, null, null, 'Driver has no data');
+ perform public.record_trip_step(t, 'in_transit', null, null, null, null, 'Driver has no data');
+ n := public.report_breakdown(t, 'Accident at Kubwa', 'lost');
+ assert n.material_cost = (select material_cost from trips where id=t) and n.material_cost > 0, 'lost load is bought again';
+ assert (select payment_id from orders where id=o.id)=o.payment_id;
+ assert (select status from orders where id=o.id)='ready', 'nothing moving: ready to dispatch again';
+ assert (select status from trucks where id='10000000-0000-0000-0000-000000000003')='maintenance';
+ assert (select count(*) from trips where order_id=o.id and status='pending')=1;
+end $$;
+
+\echo '--- step 4: grants'
+do $$ begin
+ assert not has_function_privilege('anon', 'public.record_trip_step(uuid,text,numeric,numeric,numeric,text,text)', 'execute');
+ assert not has_function_privilege('anon', 'public.report_breakdown(uuid,text,text)', 'execute');
+ assert not has_function_privilege('authenticated', 'public.distance_m(numeric,numeric,numeric,numeric)', 'execute');
+ assert has_function_privilege('authenticated', 'public.record_trip_step(uuid,text,numeric,numeric,numeric,text,text)', 'execute');
 end $$;
 rollback;
 \echo ALL_RLS_TESTS_PASSED

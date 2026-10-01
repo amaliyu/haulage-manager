@@ -1051,21 +1051,27 @@ export type Database = {
       trips: {
         Row: {
           assigned_at: string | null
+          breakdown_load: string | null
           cancel_reason: string | null
           created_at: string
           created_by: string | null
           crew_cost: number
           delivered_at: string | null
+          delivery_check: string | null
+          delivery_distance_m: number | null
           diesel_cost: number
           diesel_litres_issued: number | null
           driver_id: string | null
           id: string
+          in_transit_at: string | null
           loaded_at: string | null
           loader_receipt_no: string | null
           material_cost: number
+          office_recorded: boolean
           order_id: string
           price: number
           repayment_allocation: number
+          replaces_trip_id: string | null
           settled_at: string | null
           source_id: string | null
           status: string
@@ -1075,21 +1081,27 @@ export type Database = {
         }
         Insert: {
           assigned_at?: string | null
+          breakdown_load?: string | null
           cancel_reason?: string | null
           created_at?: string
           created_by?: string | null
           crew_cost?: number
           delivered_at?: string | null
+          delivery_check?: string | null
+          delivery_distance_m?: number | null
           diesel_cost?: number
           diesel_litres_issued?: number | null
           driver_id?: string | null
           id?: string
+          in_transit_at?: string | null
           loaded_at?: string | null
           loader_receipt_no?: string | null
           material_cost?: number
+          office_recorded?: boolean
           order_id: string
           price: number
           repayment_allocation?: number
+          replaces_trip_id?: string | null
           settled_at?: string | null
           source_id?: string | null
           status?: string
@@ -1099,21 +1111,27 @@ export type Database = {
         }
         Update: {
           assigned_at?: string | null
+          breakdown_load?: string | null
           cancel_reason?: string | null
           created_at?: string
           created_by?: string | null
           crew_cost?: number
           delivered_at?: string | null
+          delivery_check?: string | null
+          delivery_distance_m?: number | null
           diesel_cost?: number
           diesel_litres_issued?: number | null
           driver_id?: string | null
           id?: string
+          in_transit_at?: string | null
           loaded_at?: string | null
           loader_receipt_no?: string | null
           material_cost?: number
+          office_recorded?: boolean
           order_id?: string
           price?: number
           repayment_allocation?: number
+          replaces_trip_id?: string | null
           settled_at?: string | null
           source_id?: string | null
           status?: string
@@ -1141,6 +1159,13 @@ export type Database = {
             columns: ["order_id"]
             isOneToOne: false
             referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trips_replaces_trip_id_fkey"
+            columns: ["replaces_trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
             referencedColumns: ["id"]
           },
           {
@@ -1224,21 +1249,27 @@ export type Database = {
         Args: { p_driver_id: string; p_trip_id: string; p_truck_id: string }
         Returns: {
           assigned_at: string | null
+          breakdown_load: string | null
           cancel_reason: string | null
           created_at: string
           created_by: string | null
           crew_cost: number
           delivered_at: string | null
+          delivery_check: string | null
+          delivery_distance_m: number | null
           diesel_cost: number
           diesel_litres_issued: number | null
           driver_id: string | null
           id: string
+          in_transit_at: string | null
           loaded_at: string | null
           loader_receipt_no: string | null
           material_cost: number
+          office_recorded: boolean
           order_id: string
           price: number
           repayment_allocation: number
+          replaces_trip_id: string | null
           settled_at: string | null
           source_id: string | null
           status: string
@@ -1285,21 +1316,27 @@ export type Database = {
         Args: { p_reason: string; p_trip_id: string }
         Returns: {
           assigned_at: string | null
+          breakdown_load: string | null
           cancel_reason: string | null
           created_at: string
           created_by: string | null
           crew_cost: number
           delivered_at: string | null
+          delivery_check: string | null
+          delivery_distance_m: number | null
           diesel_cost: number
           diesel_litres_issued: number | null
           driver_id: string | null
           id: string
+          in_transit_at: string | null
           loaded_at: string | null
           loader_receipt_no: string | null
           material_cost: number
+          office_recorded: boolean
           order_id: string
           price: number
           repayment_allocation: number
+          replaces_trip_id: string | null
           settled_at: string | null
           source_id: string | null
           status: string
@@ -1381,6 +1418,10 @@ export type Database = {
       }
       current_driver_id: { Args: never; Returns: string }
       current_user_role: { Args: never; Returns: string }
+      distance_m: {
+        Args: { p_lat1: number; p_lat2: number; p_lng1: number; p_lng2: number }
+        Returns: number
+      }
       hm_internal: { Args: never; Returns: boolean }
       is_assigned_driver: { Args: { p_trip_id: string }; Returns: boolean }
       my_trips: {
@@ -1389,11 +1430,20 @@ export type Database = {
           assigned_at: string
           customer_name: string
           customer_phone: string
+          delivered_at: string
+          delivery_check: string
+          delivery_distance_m: number
+          delivery_photos: number
+          in_transit_at: string
+          loaded_at: string
+          loader_receipt_no: string
+          loading_photos: number
           material: string
           order_number: string
           route_name: string
           site_area: string
           site_directions: string
+          site_geofence_m: number
           site_latitude: number
           site_longitude: number
           site_name: string
@@ -1402,6 +1452,7 @@ export type Database = {
           trip_id: string
           trip_number: string
           truck_plate: string
+          truck_reference_photo: string
         }[]
       }
       next_doc_number: {
@@ -1445,6 +1496,92 @@ export type Database = {
         SetofOptions: {
           from: "*"
           to: "orders"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      record_trip_step: {
+        Args: {
+          p_accuracy_m?: number
+          p_lat?: number
+          p_lng?: number
+          p_loader_receipt_no?: string
+          p_reason?: string
+          p_step: string
+          p_trip_id: string
+        }
+        Returns: {
+          assigned_at: string | null
+          breakdown_load: string | null
+          cancel_reason: string | null
+          created_at: string
+          created_by: string | null
+          crew_cost: number
+          delivered_at: string | null
+          delivery_check: string | null
+          delivery_distance_m: number | null
+          diesel_cost: number
+          diesel_litres_issued: number | null
+          driver_id: string | null
+          id: string
+          in_transit_at: string | null
+          loaded_at: string | null
+          loader_receipt_no: string | null
+          material_cost: number
+          office_recorded: boolean
+          order_id: string
+          price: number
+          repayment_allocation: number
+          replaces_trip_id: string | null
+          settled_at: string | null
+          source_id: string | null
+          status: string
+          trip_number: string
+          truck_id: string | null
+          updated_at: string | null
+        }
+        SetofOptions: {
+          from: "*"
+          to: "trips"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      report_breakdown: {
+        Args: { p_load: string; p_reason: string; p_trip_id: string }
+        Returns: {
+          assigned_at: string | null
+          breakdown_load: string | null
+          cancel_reason: string | null
+          created_at: string
+          created_by: string | null
+          crew_cost: number
+          delivered_at: string | null
+          delivery_check: string | null
+          delivery_distance_m: number | null
+          diesel_cost: number
+          diesel_litres_issued: number | null
+          driver_id: string | null
+          id: string
+          in_transit_at: string | null
+          loaded_at: string | null
+          loader_receipt_no: string | null
+          material_cost: number
+          office_recorded: boolean
+          order_id: string
+          price: number
+          repayment_allocation: number
+          replaces_trip_id: string | null
+          settled_at: string | null
+          source_id: string | null
+          status: string
+          trip_number: string
+          truck_id: string | null
+          updated_at: string | null
+        }
+        SetofOptions: {
+          from: "*"
+          to: "trips"
           isOneToOne: true
           isSetofReturn: false
         }

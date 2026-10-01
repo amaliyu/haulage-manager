@@ -45,6 +45,10 @@ export function useDispatchTrips() {
   return useQuery({ queryKey: dispatchKeys.all, queryFn: trips.listDispatchTrips, refetchInterval: 60_000 })
 }
 
+export function useDeliveredToday() {
+  return useQuery({ queryKey: [...dispatchKeys.all, 'delivered-today'], queryFn: trips.deliveredToday, refetchInterval: 60_000 })
+}
+
 export function useMyTrips() {
   return useQuery({ queryKey: dispatchKeys.mine, queryFn: trips.listMyTrips, refetchInterval: 60_000 })
 }
@@ -86,4 +90,22 @@ export function useCancelTrip() {
 export function useUnassignTrip() {
   const qc = useQueryClient()
   return useMutation({ mutationFn: (tripId: string) => trips.unassignTrip(tripId), onSuccess: () => invalidateDispatch(qc) })
+}
+
+export function useRecordTripStep() {
+  const qc = useQueryClient()
+  return useMutation({ mutationFn: trips.recordTripStep, onSuccess: () => invalidateDispatch(qc) })
+}
+
+export function useUploadTripPhoto() {
+  const qc = useQueryClient()
+  return useMutation({ mutationFn: trips.uploadTripPhoto, onSuccess: () => invalidateDispatch(qc) })
+}
+
+export function useReportBreakdown() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (v: { tripId: string; reason: string; load: trips.BreakdownLoad }) => trips.reportBreakdown(v.tripId, v.reason, v.load),
+    onSuccess: () => invalidateDispatch(qc),
+  })
 }

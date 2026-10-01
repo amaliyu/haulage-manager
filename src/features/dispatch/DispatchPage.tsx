@@ -1,12 +1,13 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Clock, Send } from 'lucide-react'
+import { Clock, Send, TriangleAlert } from 'lucide-react'
 import { Button, ButtonLink, DataTable, EmptyState, ErrorState, PageHeader, Section, SkeletonBlock } from '@/components/ui'
 import { formatDateTime } from '@/lib/format'
-import { ACTIVE_TRIP_STATUSES, type DispatchTrip, type TripStatus } from '@/services/trips'
+import { ACTIVE_TRIP_STATUSES, countPhotos, tripFlags, type DispatchTrip, type TripStatus } from '@/services/trips'
 import { useDispatchTrips } from '@/features/orders/api'
 import { TripStatusPill } from '@/features/orders/labels'
 import { materialLabel } from '@/features/sources/labels'
+import { BreakdownDialog, TripFlagPills } from '@/features/orders/TripProgress'
 import { AssignTripModal, type AssignableTrip } from './AssignTripModal'
 
 /** "2h 15m" since a timestamp. */
@@ -18,11 +19,15 @@ function since(iso: string | null) {
   return h < 48 ? `${h}h ${mins % 60}m` : `${Math.floor(h / 24)}d ${h % 24}h`
 }
 
+const flagsOf = (t: DispatchTrip) => tripFlags({ ...t, loadingPhotos: countPhotos(t.photos, 'loading') })
+const moving = (t: DispatchTrip) => t.status === 'loaded' || t.status === 'in_transit'
+
 const where = (t: DispatchTrip) => `${t.order.customer?.name ?? '—'} · ${t.order.site ? `${t.order.site.name}, ${t.order.site.area}` : '—'}`
 
 export function DispatchPage() {
   const q = useDispatchTrips()
   const [assigning, setAssigning] = useState<AssignableTrip | null>(null)
+  const [broken, setBroken] = useState<DispatchTrip | null>(null)
 
   const groups = useMemo(() => {
     const rows = q.data ?? []
@@ -118,7 +123,27 @@ export function DispatchPage() {
             { key: 'c', header: 'Driver · truck', render: (t) => <span>{t.driver?.full_name ?? '—'} · <span className="num">{t.truck?.plate_number ?? '—'}</span></span> },
             { key: 'w', header: 'Customer · site', render: where },
             { key: 's', header: 'Out for', align: 'right', render: (t) => <span className="num">{since(t.assigned_at)}</span> },
-            { key: 'st', header: 'Status', render: (t) => <TripStatusPill status={t.status} /> },
+            {
+              key: 'st',
+              header: 'Status',
+              render: (t) => (
+                <span className="flex flex-col items-start gap-1">
+                  <TripStatusPill status={t.status} />
+                  <TripFlagPills flags={flagsOf(t)} />
+                </span>
+              ),
+            },
+            {
+              key: 'a',
+              header: 'Action',
+              align: 'right',
+              render: (t) =>
+                moving(t) && (
+                  <Button variant="ghost" className="md:min-h-row md:h-row" icon={<TriangleAlert size={16} strokeWidth={1.5} aria-hidden />} onClick={() => setBroken(t)}>
+                    Broke down
+                  </Button>
+                ),
+            },
           ]}
           mobile={{
             title: (t) => <span className="num">{t.truck?.plate_number ?? '—'}</span>,
@@ -127,10 +152,17 @@ export function DispatchPage() {
                 <span className="font-semibold text-ink">{t.driver?.full_name ?? '—'}</span>
                 <span className="num">{t.trip_number} · dispatched {formatDateTime(t.assigned_at)}</span>
                 <span>{where(t)}</span>
+                <TripFlagPills flags={flagsOf(t)} />
               </>
             ),
             figure: (t) => since(t.assigned_at),
             figureCaption: (t) => <TripStatusPill status={t.status} />,
+            actions: (t) =>
+              moving(t) && (
+                <Button variant="secondary" block icon={<TriangleAlert size={20} strokeWidth={1.5} aria-hidden />} onClick={() => setBroken(t)}>
+                  Truck broke down
+                </Button>
+              ),
           }}
         />
       </Section>
@@ -160,6 +192,11 @@ export function DispatchPage() {
       </Section>
 
       <AssignTripModal trip={assigning} onClose={() => setAssigning(null)} />
+      <BreakdownDialog
+        trip={broken && { ...broken, plate: broken.truck?.plate_number }}
+        onClose={() => setBroken(null)}
+        onReplacement={(r) => broken && setAssigning({ id: r.id, trip_number: r.trip_number, driver_id: null, truck_id: null, where: where(broken) })}
+      />
     </>
   )
 }
