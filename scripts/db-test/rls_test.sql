@@ -82,7 +82,9 @@ end $$; rollback;
 \echo '--- finance column guards'
 begin; select pg_temp.act('00000000-0000-0000-0000-00000000000f');
 do $$ begin
- update orders set status='ready' where id='50000000-0000-0000-0000-000000000001'; assert found;
+ -- prepaid order: ready needs a recorded payment (Step 3)
+ begin update orders set status='ready' where id='50000000-0000-0000-0000-000000000001'; raise exception 'finance readied unpaid prepaid';
+ exception when check_violation then null; end;
  begin update orders set price_per_trip=1 where id='50000000-0000-0000-0000-000000000001'; raise exception 'finance price';
  exception when insufficient_privilege then null; end;
  update trips set status='settled', settled_at=now(), repayment_allocation=5000 where id='60000000-0000-0000-0000-000000000001'; assert found;
@@ -155,4 +157,182 @@ do $$ declare r uuid; n int; begin
  update trucks set reference_load_photo_url='x'; assert found;
  insert into storage.objects(bucket_id,name) values ('trip-photos','trucks/10000000-0000-0000-0000-000000000001/reference.jpg');
 end $$; rollback;
+-- ============================ Step 3: orders and dispatch ====================
+create or replace function pg_temp.expect_err(q text, pat text) returns void language plpgsql as $$
+begin
+  execute q;
+  raise exception 'expected error "%" from: %', pat, q using errcode = 'XX001';
+exception when others then
+  if sqlstate = 'XX001' then raise; end if;
+  if sqlerrm not ilike '%' || pat || '%' then
+    raise exception 'wrong error for %: % (wanted %)', q, sqlerrm, pat using errcode = 'XX001';
+  end if;
+end $$;
+create or replace function pg_temp.as_system() returns void language plpgsql as $$
+begin perform set_config('request.jwt.claim.sub', '', true); reset role; end $$;
+
+insert into customers(id,name,phone,payment_terms,credit_load_cap,credit_days) values
+ ('30000000-0000-0000-0000-000000000002','Credit Co','0802','credit',1,30),
+ ('30000000-0000-0000-0000-000000000003','Zero Cap','0804','credit',0,30),
+ ('30000000-0000-0000-0000-000000000004','Roomy Co','0808','credit',5,30);
+insert into customer_sites(id,customer_id,name,area) values
+ ('40000000-0000-0000-0000-000000000002','30000000-0000-0000-0000-000000000002','Site2','Gwarinpa'),
+ ('40000000-0000-0000-0000-000000000003','30000000-0000-0000-0000-000000000003','Site3','Gwarinpa'),
+ ('40000000-0000-0000-0000-000000000004','30000000-0000-0000-0000-000000000004','Site4','Gwarinpa');
+insert into trucks(id,plate_number,owner_type,status) values
+ ('10000000-0000-0000-0000-000000000002','ABJ-222-XY','spv','available'),
+ ('10000000-0000-0000-0000-000000000003','ABJ-333-XY','spv','available'),
+ ('10000000-0000-0000-0000-000000000004','ABJ-444-XY','spv','maintenance');
+insert into drivers(id,full_name,phone,assigned_truck_id) values
+ ('20000000-0000-0000-0000-000000000003','Drv3','0806','10000000-0000-0000-0000-000000000002'),
+ ('20000000-0000-0000-0000-000000000004','Drv4','0807','10000000-0000-0000-0000-000000000003');
+
+\echo '--- step 3: dispatcher creates orders; snapshot; prepaid gate'
+begin; select pg_temp.act('00000000-0000-0000-0000-00000000000d');
+do $$ declare o orders; o2 orders; r uuid; t1 uuid; begin
+ select id into r from routes where destination_area='Gwarinpa' order by name limit 1;
+ o := public.create_order('30000000-0000-0000-0000-000000000001','40000000-0000-0000-0000-000000000001', r, 2, 'S3-A');
+ assert o.status = 'awaiting_payment', o.status;
+ assert o.payment_terms = 'prepaid';
+ assert o.price_per_trip = (select customer_price from route_prices where route_id=r and effective_to is null);
+ assert (select count(*) from trips where order_id=o.id and status='pending' and price=o.price_per_trip)=2;
+ assert (select count(*) from trip_events e join trips t on t.id=e.trip_id where t.order_id=o.id and e.event_type='created')=2;
+ -- a direct insert cannot choose its own price, terms or status
+ insert into orders(customer_id,site_id,route_id,material,trips_ordered,price_per_trip,payment_terms,status)
+  values ('30000000-0000-0000-0000-000000000001','40000000-0000-0000-0000-000000000001',r,'granite',1,1,'credit','ready') returning * into o2;
+ assert o2.price_per_trip = o.price_per_trip and o2.status='awaiting_payment' and o2.payment_terms='prepaid' and o2.material='sharp_sand';
+ perform pg_temp.expect_err(format('insert into orders(customer_id,site_id,route_id,material,trips_ordered,price_per_trip,payment_terms) values (%L,%L,%L,%L,1,1,%L)',
+   '30000000-0000-0000-0000-000000000002','40000000-0000-0000-0000-000000000001', r, 'x', 'credit'), 'does not belong');
+ select id into t1 from trips where order_id=o.id order by trip_number limit 1;
+ perform pg_temp.expect_err(format('select public.assign_trip(%L,%L,%L)', t1,'20000000-0000-0000-0000-000000000003','10000000-0000-0000-0000-000000000002'), 'awaiting payment');
+ perform pg_temp.expect_err(format('update trips set status=%L, driver_id=%L, truck_id=%L where id=%L', 'assigned','20000000-0000-0000-0000-000000000003','10000000-0000-0000-0000-000000000002', t1), 'awaiting payment');
+ perform pg_temp.expect_err(format('select public.record_order_payment(%L, 1000000, %L, null, now())', o.id, 'cash'), 'Only admin or finance');
+ perform pg_temp.expect_err(format('update orders set status=%L where id=%L', 'ready', o.id), 'Only the notes');
+ perform pg_temp.expect_err(format('update trips set price=1 where id=%L', t1), 'Only the dispatch fields');
+ update orders set notes='S3-A edited' where id=o.id; assert found;
+ update orders set notes='S3-A' where id=o.id;
+end $$;
+
+\echo '--- step 3: finance records payment (full only), cannot dispatch'
+select pg_temp.act('00000000-0000-0000-0000-00000000000f');
+do $$ declare o orders; total int; begin
+ select * into o from orders where notes='S3-A';
+ total := o.price_per_trip * 2;
+ perform pg_temp.expect_err(format('select public.record_order_payment(%L, %s, %L, %L, now())', o.id, total-1, 'bank_transfer', 'REF1'), 'paid in full');
+ perform pg_temp.expect_err(format('update orders set status=%L where id=%L', 'ready', o.id), 'orders_prepaid_needs_payment');
+ o := public.record_order_payment(o.id, total, 'bank_transfer', 'REF1', now() - interval '1 hour');
+ assert o.status='ready' and o.payment_id is not null;
+ assert (select amount from payments where id=o.payment_id)=total;
+ assert (select count(*) from ledger_entries where payment_id=o.payment_id and entry_type='payment' and amount=total)=1;
+ perform pg_temp.expect_err(format('select public.record_order_payment(%L, %s, %L, null, now())', o.id, total, 'cash'), 'not awaiting payment');
+ perform pg_temp.expect_err(format('select public.assign_trip((select id from trips where order_id=%L limit 1),%L,%L)', o.id,'20000000-0000-0000-0000-000000000003','10000000-0000-0000-0000-000000000002'), 'Only an admin or dispatcher');
+end $$;
+
+\echo '--- step 3: dispatch, double-booking, maintenance, cancel, unassign'
+select pg_temp.act('00000000-0000-0000-0000-00000000000d');
+do $$ declare o orders; t1 uuid; t2 uuid; begin
+ select * into o from orders where notes='S3-A';
+ select id into t1 from trips where order_id=o.id order by trip_number limit 1;
+ select id into t2 from trips where order_id=o.id order by trip_number desc limit 1;
+ perform public.assign_trip(t1,'20000000-0000-0000-0000-000000000003','10000000-0000-0000-0000-000000000002');
+ assert (select status from trips where id=t1)='assigned' and (select assigned_at from trips where id=t1) is not null;
+ assert (select status from trucks where id='10000000-0000-0000-0000-000000000002')='on_trip';
+ assert (select status from orders where id=o.id)='in_progress';
+ assert (select count(*) from trip_events where trip_id=t1 and event_type='assigned' and note like 'Assigned to Drv3, truck ABJ-222-XY')=1;
+ perform pg_temp.expect_err(format('select public.assign_trip(%L,%L,%L)', t2,'20000000-0000-0000-0000-000000000003','10000000-0000-0000-0000-000000000003'), 'Drv3 is already on trip');
+ perform pg_temp.expect_err(format('select public.assign_trip(%L,%L,%L)', t2,'20000000-0000-0000-0000-000000000004','10000000-0000-0000-0000-000000000002'), 'ABJ-222-XY is already on trip');
+ perform pg_temp.expect_err(format('select public.assign_trip(%L,%L,%L)', t2,'20000000-0000-0000-0000-000000000004','10000000-0000-0000-0000-000000000004'), 'maintenance');
+ perform pg_temp.expect_err(format('select public.cancel_trip(%L, %L)', t2, '  '), 'reason');
+ perform public.cancel_trip(t2, 'Customer reduced the order');
+ assert (select status from trips where id=t2)='cancelled';
+ assert (select status from orders where id=o.id)='in_progress';
+ perform pg_temp.expect_err(format('select public.cancel_trip(%L, %L)', t2, 'again'), 'can no longer be cancelled');
+ -- unassign frees the truck and the order goes back to ready
+ update trips set status='pending' where id=t1;
+ assert (select driver_id from trips where id=t1) is null;
+ assert (select status from trucks where id='10000000-0000-0000-0000-000000000002')='available';
+ assert (select status from orders where id=o.id)='ready';
+ -- reassign and swap truck
+ perform public.assign_trip(t1,'20000000-0000-0000-0000-000000000003','10000000-0000-0000-0000-000000000002');
+ perform public.assign_trip(t1,'20000000-0000-0000-0000-000000000003','10000000-0000-0000-0000-000000000003');
+ assert (select status from trucks where id='10000000-0000-0000-0000-000000000002')='available';
+ assert (select status from trucks where id='10000000-0000-0000-0000-000000000003')='on_trip';
+ assert (select count(*) from trip_events where trip_id=t1 and note like 'Reassigned to Drv3, truck ABJ-333-XY')=1;
+end $$;
+
+\echo '--- step 3: price stays fixed after a route price change'
+select pg_temp.act('00000000-0000-0000-0000-00000000000a');
+do $$ declare o orders; before int; begin
+ select * into o from orders where notes='S3-A';
+ before := o.price_per_trip;
+ perform public.change_route_price(o.route_id, before + 50000, 65000, 1800, 15000, 'up');
+ assert (select price_per_trip from orders where id=o.id)=before;
+ assert (select count(*) from trips where order_id=o.id and price<>before)=0;
+end $$;
+
+\echo '--- step 3: cancel order frees trucks'
+select pg_temp.act('00000000-0000-0000-0000-00000000000d');
+do $$ declare o orders; begin
+ select * into o from orders where notes='S3-A';
+ perform pg_temp.expect_err(format('select public.cancel_order(%L, null)', o.id), 'reason');
+ o := public.cancel_order(o.id, 'Site closed');
+ assert o.status='cancelled' and o.cancel_reason='Site closed';
+ assert (select count(*) from trips where order_id=o.id and status<>'cancelled')=0;
+ assert (select status from trucks where id='10000000-0000-0000-0000-000000000003')='available';
+ perform pg_temp.expect_err(format('select public.cancel_order(%L, %L)', o.id, 'x'), 'already cancelled');
+end $$;
+
+\echo '--- step 3: credit orders, credit cap, zero cap'
+do $$ declare o orders; z orders; r uuid; c1 uuid; c2 uuid; begin
+ select id into r from routes where destination_area='Gwarinpa' order by name limit 1;
+ o := public.create_order('30000000-0000-0000-0000-000000000002','40000000-0000-0000-0000-000000000002', r, 2, 'S3-C');
+ assert o.status='ready' and o.payment_terms='credit' and o.payment_id is null;
+ select id into c1 from trips where order_id=o.id order by trip_number limit 1;
+ select id into c2 from trips where order_id=o.id order by trip_number desc limit 1;
+ perform public.assign_trip(c1,'20000000-0000-0000-0000-000000000004','10000000-0000-0000-0000-000000000003');
+ perform pg_temp.expect_err(format('select public.assign_trip(%L,%L,%L)', c2,'20000000-0000-0000-0000-000000000003','10000000-0000-0000-0000-000000000002'), 'Over credit cap (1 of 1');
+ z := public.create_order('30000000-0000-0000-0000-000000000003','40000000-0000-0000-0000-000000000003', r, 1, 'S3-Z');
+ perform pg_temp.expect_err(format('select public.assign_trip((select id from trips where order_id=%L),%L,%L)', z.id,'20000000-0000-0000-0000-000000000003','10000000-0000-0000-0000-000000000002'), 'Set a credit cap');
+end $$;
+
+\echo '--- step 3: delivered trip frees the truck; order completes'
+select pg_temp.as_system();
+update trips set status='delivered', delivered_at=now()
+ where order_id=(select id from orders where notes='S3-C') and status='assigned';
+select pg_temp.act('00000000-0000-0000-0000-00000000000d');
+do $$ declare o orders; begin
+ select * into o from orders where notes='S3-C';
+ assert (select status from trucks where id='10000000-0000-0000-0000-000000000003')='available';
+ assert o.status='in_progress', o.status;
+ perform public.cancel_trip((select id from trips where order_id=o.id and status='pending'), 'Not needed');
+ assert (select status from orders where id=o.id)='completed';
+ perform pg_temp.expect_err(format('update trips set status=%L where order_id=%L and status=%L', 'pending', o.id, 'delivered'), 'can no longer be changed');
+end $$;
+
+\echo '--- step 3: my_trips shows a driver only their own active trips'
+select pg_temp.act('00000000-0000-0000-0000-00000000000d');
+do $$ declare o orders; begin
+ o := public.create_order('30000000-0000-0000-0000-000000000004','40000000-0000-0000-0000-000000000004',
+        (select id from routes where destination_area='Gwarinpa' order by name limit 1), 1, 'S3-D');
+ perform public.assign_trip((select id from trips where order_id=o.id),'20000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000001');
+ assert (select count(*) from public.my_trips())=0, 'dispatcher sees driver trips';
+end $$;
+select pg_temp.act('00000000-0000-0000-0000-0000000000a1');
+do $$ begin
+ assert (select count(*) from public.my_trips())=1;
+ assert (select site_name from public.my_trips())='Site4';
+ assert (select truck_plate from public.my_trips())='ABJ-123-XY';
+end $$;
+select pg_temp.act('00000000-0000-0000-0000-0000000000a2');
+do $$ begin assert (select count(*) from public.my_trips())=0, 'other driver sees trip'; end $$;
+
+\echo '--- step 3: drivers cannot create or dispatch; functions not callable by anon'
+select pg_temp.act('00000000-0000-0000-0000-0000000000a1');
+do $$ begin
+ perform pg_temp.expect_err(format('select public.create_order(%L,%L,(select id from routes limit 1),1)', '30000000-0000-0000-0000-000000000001','40000000-0000-0000-0000-000000000001'), 'Only an admin or dispatcher');
+ assert not has_function_privilege('anon', 'public.create_order(uuid,uuid,uuid,int,text)', 'execute');
+ assert not has_function_privilege('authenticated', 'public.trips_dispatch_rules()', 'execute');
+ assert not has_function_privilege('authenticated', 'public.sync_order_status(uuid)', 'execute');
+end $$;
+rollback;
 \echo ALL_RLS_TESTS_PASSED

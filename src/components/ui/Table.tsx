@@ -42,12 +42,21 @@ type Props<T> = {
   emptyAction?: ReactNode
   caption?: string
   skeletonRows?: number
+  /** Width from which the dense table replaces the stacked blocks. Default xl: with the 240px sidebar, most tables do not fit below 1280px. Narrow tables may use lg. */
+  tableFrom?: 'md' | 'lg' | 'xl'
 }
 
+// Full class names so Tailwind keeps them.
+const SWITCH = {
+  md: { list: 'md:hidden', table: 'md:block' },
+  lg: { list: 'lg:hidden', table: 'lg:block' },
+  xl: { list: 'xl:hidden', table: 'xl:block' },
+} as const
+
 /**
- * The core list primitive. A dense 40px-row table from md up; below md each
- * row becomes a bordered block with the key figure large on the right. It
- * never scrolls horizontally.
+ * The core list primitive. A dense 40px-row table on wide screens (from xl by
+ * default); below that each row becomes a bordered block with the key figure
+ * large on the right. It never scrolls horizontally.
  */
 export function DataTable<T>({
   rows,
@@ -64,6 +73,7 @@ export function DataTable<T>({
   emptyAction,
   caption,
   skeletonRows = 6,
+  tableFrom = 'xl',
 }: Props<T>) {
   if (isError) return <ErrorState what={`Could not load ${noun}.`} error={error} onRetry={onRetry} />
   if (!isLoading && rows && rows.length === 0) return <EmptyState message={emptyMessage} action={emptyAction} />
@@ -72,7 +82,7 @@ export function DataTable<T>({
   return (
     <>
       {/* Phones: stacked blocks */}
-      <ul className="flex flex-col gap-2 md:hidden" aria-busy={loading || undefined} aria-label={caption ?? noun}>
+      <ul className={cn('flex flex-col gap-2', SWITCH[tableFrom].list)} aria-busy={loading || undefined} aria-label={caption ?? noun}>
         {loading
           ? Array.from({ length: skeletonRows }, (_, i) => (
               <li key={i} className="flex min-h-[72px] items-center justify-between gap-3 rounded-panel border border-line bg-panel p-3" aria-hidden>
@@ -117,8 +127,8 @@ export function DataTable<T>({
             })}
       </ul>
 
-      {/* md and up: dense table */}
-      <div className="hidden rounded-panel border border-line bg-panel md:block">
+      {/* tableFrom and up: dense table */}
+      <div className={cn('hidden rounded-panel border border-line bg-panel', SWITCH[tableFrom].table)}>
         <table className="w-full border-collapse text-body">
           {caption && <caption className="sr-only">{caption}</caption>}
           <thead>

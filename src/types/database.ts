@@ -590,6 +590,7 @@ export type Database = {
       }
       orders: {
         Row: {
+          cancel_reason: string | null
           created_at: string
           created_by: string | null
           customer_id: string
@@ -597,6 +598,7 @@ export type Database = {
           material: string
           notes: string | null
           order_number: string
+          payment_id: string | null
           payment_terms: string
           price_per_trip: number
           route_id: string
@@ -607,6 +609,7 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
+          cancel_reason?: string | null
           created_at?: string
           created_by?: string | null
           customer_id: string
@@ -614,6 +617,7 @@ export type Database = {
           material: string
           notes?: string | null
           order_number?: string
+          payment_id?: string | null
           payment_terms: string
           price_per_trip: number
           route_id: string
@@ -624,6 +628,7 @@ export type Database = {
           updated_at?: string | null
         }
         Update: {
+          cancel_reason?: string | null
           created_at?: string
           created_by?: string | null
           customer_id?: string
@@ -631,6 +636,7 @@ export type Database = {
           material?: string
           notes?: string | null
           order_number?: string
+          payment_id?: string | null
           payment_terms?: string
           price_per_trip?: number
           route_id?: string
@@ -653,6 +659,13 @@ export type Database = {
             columns: ["customer_id"]
             isOneToOne: false
             referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "orders_payment_id_fkey"
+            columns: ["payment_id"]
+            isOneToOne: false
+            referencedRelation: "payments"
             referencedColumns: ["id"]
           },
           {
@@ -1207,6 +1220,100 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      assign_trip: {
+        Args: { p_driver_id: string; p_trip_id: string; p_truck_id: string }
+        Returns: {
+          assigned_at: string | null
+          cancel_reason: string | null
+          created_at: string
+          created_by: string | null
+          crew_cost: number
+          delivered_at: string | null
+          diesel_cost: number
+          diesel_litres_issued: number | null
+          driver_id: string | null
+          id: string
+          loaded_at: string | null
+          loader_receipt_no: string | null
+          material_cost: number
+          order_id: string
+          price: number
+          repayment_allocation: number
+          settled_at: string | null
+          source_id: string | null
+          status: string
+          trip_number: string
+          truck_id: string | null
+          updated_at: string | null
+        }
+        SetofOptions: {
+          from: "*"
+          to: "trips"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      cancel_order: {
+        Args: { p_order_id: string; p_reason: string }
+        Returns: {
+          cancel_reason: string | null
+          created_at: string
+          created_by: string | null
+          customer_id: string
+          id: string
+          material: string
+          notes: string | null
+          order_number: string
+          payment_id: string | null
+          payment_terms: string
+          price_per_trip: number
+          route_id: string
+          route_price_id: string | null
+          site_id: string
+          status: string
+          trips_ordered: number
+          updated_at: string | null
+        }
+        SetofOptions: {
+          from: "*"
+          to: "orders"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      cancel_trip: {
+        Args: { p_reason: string; p_trip_id: string }
+        Returns: {
+          assigned_at: string | null
+          cancel_reason: string | null
+          created_at: string
+          created_by: string | null
+          crew_cost: number
+          delivered_at: string | null
+          diesel_cost: number
+          diesel_litres_issued: number | null
+          driver_id: string | null
+          id: string
+          loaded_at: string | null
+          loader_receipt_no: string | null
+          material_cost: number
+          order_id: string
+          price: number
+          repayment_allocation: number
+          settled_at: string | null
+          source_id: string | null
+          status: string
+          trip_number: string
+          truck_id: string | null
+          updated_at: string | null
+        }
+        SetofOptions: {
+          from: "*"
+          to: "trips"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       change_route_price: {
         Args: {
           p_crew_cost: number
@@ -1238,9 +1345,65 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      create_order: {
+        Args: {
+          p_customer_id: string
+          p_notes?: string
+          p_route_id: string
+          p_site_id: string
+          p_trips: number
+        }
+        Returns: {
+          cancel_reason: string | null
+          created_at: string
+          created_by: string | null
+          customer_id: string
+          id: string
+          material: string
+          notes: string | null
+          order_number: string
+          payment_id: string | null
+          payment_terms: string
+          price_per_trip: number
+          route_id: string
+          route_price_id: string | null
+          site_id: string
+          status: string
+          trips_ordered: number
+          updated_at: string | null
+        }
+        SetofOptions: {
+          from: "*"
+          to: "orders"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       current_driver_id: { Args: never; Returns: string }
       current_user_role: { Args: never; Returns: string }
+      hm_internal: { Args: never; Returns: boolean }
       is_assigned_driver: { Args: { p_trip_id: string }; Returns: boolean }
+      my_trips: {
+        Args: never
+        Returns: {
+          assigned_at: string
+          customer_name: string
+          customer_phone: string
+          material: string
+          order_number: string
+          route_name: string
+          site_area: string
+          site_directions: string
+          site_latitude: number
+          site_longitude: number
+          site_name: string
+          source_name: string
+          status: string
+          trip_id: string
+          trip_number: string
+          truck_plate: string
+        }[]
+      }
       next_doc_number: {
         Args: { p_prefix: string; p_width: number }
         Returns: string
@@ -1250,6 +1413,41 @@ export type Database = {
       only_columns_changed: {
         Args: { p_allowed: string[]; p_new: Json; p_old: Json }
         Returns: boolean
+      }
+      record_order_payment: {
+        Args: {
+          p_amount: number
+          p_bank_reference: string
+          p_method: string
+          p_note?: string
+          p_order_id: string
+          p_received_at: string
+        }
+        Returns: {
+          cancel_reason: string | null
+          created_at: string
+          created_by: string | null
+          customer_id: string
+          id: string
+          material: string
+          notes: string | null
+          order_number: string
+          payment_id: string | null
+          payment_terms: string
+          price_per_trip: number
+          route_id: string
+          route_price_id: string | null
+          site_id: string
+          status: string
+          trips_ordered: number
+          updated_at: string | null
+        }
+        SetofOptions: {
+          from: "*"
+          to: "orders"
+          isOneToOne: true
+          isSetofReturn: false
+        }
       }
       set_diesel_price: {
         Args: { p_price_per_litre: number }
@@ -1270,6 +1468,8 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      sync_order_status: { Args: { p_order_id: string }; Returns: undefined }
+      sync_truck_status: { Args: { p_truck_id: string }; Returns: undefined }
       try_uuid: { Args: { p: string }; Returns: string }
     }
     Enums: {

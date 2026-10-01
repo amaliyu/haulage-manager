@@ -63,7 +63,7 @@ export function SelectField<T extends FieldValues>({
   options,
   disabled,
   placeholder,
-}: Base<T> & { options: { value: string; label: string }[]; disabled?: boolean; placeholder?: string }) {
+}: Base<T> & { options: { value: string; label: string; disabled?: boolean }[]; disabled?: boolean; placeholder?: string }) {
   const error = errorOf(form, name)
   return (
     <Field label={label} hint={hint} error={error} required={required} className={className}>
@@ -71,7 +71,7 @@ export function SelectField<T extends FieldValues>({
         <Select id={p.id} aria-describedby={p.describedBy} invalid={p.invalid} disabled={disabled} {...form.register(name)}>
           {placeholder !== undefined && <option value="">{placeholder}</option>}
           {options.map((o) => (
-            <option key={o.value} value={o.value}>
+            <option key={o.value} value={o.value} disabled={o.disabled}>
               {o.label}
             </option>
           ))}

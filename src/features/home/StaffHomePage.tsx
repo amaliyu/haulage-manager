@@ -9,6 +9,8 @@ import { useRoutes } from '@/features/routes/api'
 import { useTrucks } from '@/features/trucks/api'
 import { useDrivers } from '@/features/drivers/api'
 import { useDieselPrices } from '@/features/diesel/api'
+import { useDispatchTrips } from '@/features/orders/api'
+import { ACTIVE_TRIP_STATUSES, type TripStatus } from '@/services/trips'
 
 export function StaffHomePage() {
   const profile = useProfile()
@@ -17,6 +19,7 @@ export function StaffHomePage() {
   const trucks = useTrucks({ active: 'active' })
   const drivers = useDrivers({ active: 'active' })
   const diesel = useDieselPrices()
+  const board = useDispatchTrips()
 
   const pump = diesel.data?.find((d) => d.effective_to === null)
   const unpriced = routes.data?.filter((r) => !r.current_price) ?? []
@@ -24,7 +27,12 @@ export function StaffHomePage() {
   const noPhoto = trucks.data?.filter((t) => !t.reference_load_photo_url).length ?? 0
   const unassigned = drivers.data?.filter((d) => !d.assigned_truck_id).length ?? 0
   const credit = customers.data?.filter((c) => c.payment_terms === 'credit').length ?? 0
-  const failed = [customers, routes, trucks, drivers, diesel].filter((x) => x.isError)
+  const failed = [customers, routes, trucks, drivers, diesel, board].filter((x) => x.isError)
+  const b = board.data ?? []
+  const toDispatch = b.filter((t) => t.status === 'pending' && (t.order.status === 'ready' || t.order.status === 'in_progress')).length
+  const onRoad = b.filter((t) => ACTIVE_TRIP_STATUSES.includes(t.status as TripStatus)).length
+  const unpaidOrders = new Set(b.filter((t) => t.order.status === 'awaiting_payment').map((t) => t.order.id)).size
+  const dispatchLink = profile.role === 'finance' ? '/orders' : '/dispatch'
 
   return (
     <>
@@ -34,6 +42,30 @@ export function StaffHomePage() {
           <ErrorState what="Some figures could not load." error={failed[0].error} onRetry={() => failed.forEach((f) => void f.refetch())} />
         </div>
       )}
+      <div className="mb-3 grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <MetricTile
+          label="To dispatch"
+          to={dispatchLink}
+          loading={board.isLoading}
+          emphasis={toDispatch > 0}
+          value={board.data ? toDispatch : '—'}
+          context={toDispatch ? 'Paid trips waiting for a truck' : 'Nothing waiting'}
+        />
+        <MetricTile
+          label="On the road"
+          to={dispatchLink}
+          loading={board.isLoading}
+          value={board.data ? onRoad : '—'}
+          context={onRoad === 1 ? 'Truck out now' : 'Trucks out now'}
+        />
+        <MetricTile
+          label="Awaiting payment"
+          to="/orders"
+          loading={board.isLoading}
+          value={board.data ? unpaidOrders : '—'}
+          context={unpaidOrders ? 'Prepaid orders locked until paid' : 'No unpaid orders'}
+        />
+      </div>
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <MetricTile
           label="Diesel pump price"
