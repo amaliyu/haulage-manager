@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { AlertTriangle, Ban, Banknote, Send, Undo2, UserRoundCog, XCircle } from 'lucide-react'
+import { AlertTriangle, Ban, Banknote, CheckCircle2, PackageCheck, Send, TriangleAlert, Undo2, UserRoundCog, XCircle } from 'lucide-react'
 import {
   Button,
   Card,
@@ -17,13 +17,14 @@ import {
 import { useRole } from '@/hooks/useRole'
 import { formatDateTime, formatNaira } from '@/lib/format'
 import { orderTotals, overpaid, tripProgress, type OrderWithRefs } from '@/services/orders'
-import type { TripWithCrew } from '@/services/trips'
+import { countPhotos, tripFlags, type TripWithCrew } from '@/services/trips'
 import { TermsPill } from '@/features/customers/CustomerListPage'
 import { materialLabel } from '@/features/sources/labels'
 import { AssignTripModal, type AssignableTrip } from '@/features/dispatch/AssignTripModal'
 import { useCancelOrder, useCancelTrip, useOrder, useOrderEvents, useOrderTrips, useUnassignTrip } from './api'
 import { OrderStatusPill, TripStatusPill, paymentMethodLabel } from './labels'
 import { RecordPaymentModal } from './RecordPaymentModal'
+import { BreakdownDialog, OfficeStepDialog, PhotoThumb, TripFlagPills, officeStep } from './TripProgress'
 
 const EVENT_LABEL: Record<string, string> = {
   created: 'Trip created',
@@ -148,6 +149,7 @@ function OrderDetail({ order: o }: { order: OrderWithRefs }) {
       </Card>
 
       <TripsSection order={o} />
+      <PhotosSection orderId={o.id} />
       <HistorySection orderId={o.id} />
 
       <RecordPaymentModal open={paying} onClose={() => setPaying(false)} order={{ id: o.id, order_number: o.order_number, total: t.total }} />
@@ -194,14 +196,30 @@ function TripsSection({ order: o }: { order: OrderWithRefs }) {
   const [assigning, setAssigning] = useState<AssignableTrip | null>(null)
   const [cancelling, setCancelling] = useState<TripWithCrew | null>(null)
   const [unassigning, setUnassigning] = useState<TripWithCrew | null>(null)
+  const [stepping, setStepping] = useState<TripWithCrew | null>(null)
+  const [broken, setBroken] = useState<TripWithCrew | null>(null)
   const dispatchable = o.status === 'ready' || o.status === 'in_progress'
   const where = `${o.customer?.name ?? ''} · ${o.site ? `${o.site.name}, ${o.site.area}` : ''}`
 
   const actions = (tr: TripWithCrew) => {
-    if (!canDispatch || (tr.status !== 'pending' && tr.status !== 'assigned')) return null
+    if (!canDispatch) return null
     const small = 'md:w-auto md:min-h-row md:h-row'
+    const step = officeStep(tr.status)
+    if (tr.status === 'loaded' || tr.status === 'in_transit') {
+      return (
+        <div className="flex flex-col gap-2 md:flex-row md:flex-wrap md:justify-end xl:flex-col xl:items-end">
+          <Button variant="secondary" block className={small} icon={<CheckCircle2 size={16} strokeWidth={1.5} aria-hidden />} onClick={() => setStepping(tr)}>
+            Mark delivered
+          </Button>
+          <Button variant="ghost" block className={small} icon={<TriangleAlert size={16} strokeWidth={1.5} aria-hidden />} onClick={() => setBroken(tr)}>
+            Truck broke down
+          </Button>
+        </div>
+      )
+    }
+    if (tr.status !== 'pending' && tr.status !== 'assigned') return null
     return (
-      <div className="flex flex-col gap-2 md:flex-row md:justify-end">
+      <div className="flex flex-col gap-2 md:flex-row md:flex-wrap md:justify-end xl:flex-col xl:items-end">
         {tr.status === 'pending' && dispatchable && (
           <Button block className={small} icon={<Send size={16} strokeWidth={1.5} aria-hidden />} onClick={() => setAssigning({ ...tr, where })}>
             Dispatch
@@ -215,6 +233,11 @@ function TripsSection({ order: o }: { order: OrderWithRefs }) {
             <Button variant="secondary" block className={small} icon={<Undo2 size={16} strokeWidth={1.5} aria-hidden />} onClick={() => setUnassigning(tr)}>
               Unassign
             </Button>
+            {step === 'loaded' && (
+              <Button variant="secondary" block className={small} icon={<PackageCheck size={16} strokeWidth={1.5} aria-hidden />} onClick={() => setStepping(tr)}>
+                Mark loaded
+              </Button>
+            )}
           </>
         )}
         <Button variant="ghost" block className={small} icon={<XCircle size={16} strokeWidth={1.5} aria-hidden />} onClick={() => setCancelling(tr)}>
@@ -250,7 +273,17 @@ function TripsSection({ order: o }: { order: OrderWithRefs }) {
           { key: 'n', header: 'Trip', render: (tr) => <span className="num whitespace-nowrap font-semibold">{tr.trip_number}</span> },
           { key: 'crew', header: 'Driver · truck', render: crew },
           { key: 'at', header: 'Dispatched', render: (tr) => <span className="num">{tr.assigned_at ? formatDateTime(tr.assigned_at) : '—'}</span> },
-          { key: 'status', header: 'Status', render: (tr) => <TripStatusPill status={tr.status} /> },
+          {
+            key: 'status',
+            header: 'Status',
+            render: (tr) => (
+              <span className="flex flex-col items-start gap-1">
+                <TripStatusPill status={tr.status} />
+                <TripFlagPills flags={flagsOf(tr)} />
+                {tr.cancel_reason && <span className="text-small text-ink-3">{tr.cancel_reason}</span>}
+              </span>
+            ),
+          },
           ...(canDispatch ? [{ key: 'actions', header: 'Actions', align: 'right' as const, render: actions }] : []),
         ]}
         mobile={{
@@ -259,6 +292,7 @@ function TripsSection({ order: o }: { order: OrderWithRefs }) {
             <>
               {crew(tr)}
               {tr.assigned_at && <span className="num">Dispatched {formatDateTime(tr.assigned_at)}</span>}
+              <TripFlagPills flags={flagsOf(tr)} />
               {tr.cancel_reason && <span className="text-ink-3">{tr.cancel_reason}</span>}
             </>
           ),
@@ -268,6 +302,12 @@ function TripsSection({ order: o }: { order: OrderWithRefs }) {
       />
 
       <AssignTripModal trip={assigning} onClose={() => setAssigning(null)} />
+      <OfficeStepDialog trip={stepping && { ...stepping, driverName: stepping.driver?.full_name }} onClose={() => setStepping(null)} />
+      <BreakdownDialog
+        trip={broken && { ...broken, plate: broken.truck?.plate_number }}
+        onClose={() => setBroken(null)}
+        onReplacement={(t) => setAssigning({ id: t.id, trip_number: t.trip_number, driver_id: null, truck_id: null, where })}
+      />
       <ReasonDialog
         open={Boolean(cancelling)}
         title={`Cancel trip ${cancelling?.trip_number ?? ''}?`}
@@ -319,6 +359,43 @@ function TripsSection({ order: o }: { order: OrderWithRefs }) {
           }
         }}
       />
+    </Section>
+  )
+}
+
+const flagsOf = (tr: TripWithCrew) => tripFlags({ ...tr, loadingPhotos: countPhotos(tr.photos, 'loading') })
+
+/** Loading photos beside the truck's full-load reference, then delivery photos. */
+function PhotosSection({ orderId }: { orderId: string }) {
+  const q = useOrderTrips(orderId)
+  const withPhotos = (q.data ?? []).filter((tr) => tr.photos?.length)
+  if (!withPhotos.length) return null
+  return (
+    <Section title="Photos">
+      <ul className="flex flex-col gap-3">
+        {withPhotos.map((tr) => {
+          const sorted = [...tr.photos].sort((a, b) => (a.taken_at ?? '').localeCompare(b.taken_at ?? ''))
+          return (
+            <li key={tr.id} className="rounded-panel border border-line bg-panel p-3">
+              <p className="mb-2 font-semibold">
+                <span className="num">{tr.trip_number}</span>
+                {tr.truck && <span className="num font-normal text-ink-2"> · {tr.truck.plate_number}</span>}
+              </p>
+              <div className="flex flex-wrap gap-3">
+                <PhotoThumb path={tr.truck?.reference_load_photo_url} alt={`Full load reference for ${tr.truck?.plate_number ?? 'the truck'}`} caption="Reference full load" />
+                {sorted.map((ph) => (
+                  <PhotoThumb
+                    key={ph.id}
+                    path={ph.storage_path}
+                    alt={`${ph.photo_type === 'loading' ? 'Loading' : 'Delivery'} photo for ${tr.trip_number}`}
+                    caption={`${ph.photo_type === 'loading' ? 'Loading' : ph.photo_type === 'delivery' ? 'Delivery' : 'Other'}${ph.taken_at ? ` · ${formatDateTime(ph.taken_at)}` : ''}`}
+                  />
+                ))}
+              </div>
+            </li>
+          )
+        })}
+      </ul>
     </Section>
   )
 }

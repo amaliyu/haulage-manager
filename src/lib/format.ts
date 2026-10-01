@@ -57,6 +57,13 @@ export function formatDateTime(iso: string | null | undefined): string {
   return `${p.day} ${p.month}${year}, ${p.hour}:${p.minute}${ampm}`
 }
 
+/** "4:30pm" in Africa/Lagos. */
+export function formatTime(iso: string | null | undefined): string {
+  if (!iso) return '—'
+  const p = parts(iso)
+  return `${p.hour}:${p.minute}${(p.dayPeriod ?? '').toLowerCase().replace(/\s|\./g, '')}`
+}
+
 /** "22 Sep 2026" in Africa/Lagos. */
 export function formatDate(iso: string | null | undefined): string {
   if (!iso) return '—'

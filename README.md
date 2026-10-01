@@ -18,7 +18,15 @@ Dispatch and settlement for sand and granite tipper haulage in Abuja. One **trip
 
 All of these rules are enforced in the database (triggers and functions in `supabase/migrations/20261001000000_step3_orders_dispatch.sql`), not only in the app.
 
-The driver trip actions (loaded, delivered, photos), settlement and reports come in later steps.
+**Step 4** (trip progress) adds:
+
+- **Driver steps.** On Home the driver taps **I've loaded → I've left the loading site → I've delivered**. Loading shows the truck's reference full-load photo so the driver can frame the same shot. Loading and delivery photos are optional. The loader receipt number is optional. A repeated tap (for example after a lost network reply) does nothing. Delivered trips stay under *Done today*.
+- **Delivery location.** Delivery is never blocked. The phone's GPS is compared with the site pin (site radius plus GPS accuracy, up to 200m). The trip is flagged *Inside site*, *Outside site (Nm)*, *No location* or *No site pin*. A trip loaded with no photo is flagged *No load photo*.
+- **Office backup.** An admin or dispatcher can mark a trip loaded or delivered for a driver who can't, with a required reason. It shows as *Recorded by office*, with no location.
+- **Breakdown.** For a loaded or moving trip, **Truck broke down** cancels the trip, puts the truck in *Maintenance* and adds a replacement trip to the same order at the same price. The office picks whether the load was moved to the new truck (the replacement buys no new material) or lost. The dispatch screen opens straight away for the replacement. An admin sets the truck back to *Available* on its edit page once it's repaired.
+- **Drivers can no longer change trips directly.** Every step goes through `record_trip_step`, so steps can't be skipped and the location check can't be bypassed.
+
+Settlement and reports come in later steps.
 
 UI rules are in [DESIGN.md](DESIGN.md). Every screen follows them.
 
@@ -67,7 +75,8 @@ Nothing in this repository applies migrations automatically. In the Supabase das
 2. `supabase/migrations/20260923000000_advisor_fixes.sql` applies the Supabase advisor fixes. Trigger functions can no longer be called as RPCs, `anon` can execute nothing, and it adds covering indexes for the business foreign keys.
 3. `supabase/migrations/20261001000000_step3_orders_dispatch.sql` adds the order and dispatch rules and the `create_order`, `assign_trip`, `cancel_trip`, `cancel_order` and `record_order_payment` functions.
 4. `supabase/migrations/20261001000100_driver_my_trips.sql` adds `my_trips()`, which gives a driver the delivery details of their own active trips.
-5. `supabase/seed.sql` adds the sample data: Koita and Kwali sand sites, four routes to Gwarinpa and Apo/Wuye with current prices, and a diesel price of ₦1,730/L. It is safe to run twice. It adds no customers, trucks or drivers. Delete the sample rows from the app once real data exists.
+5. `supabase/migrations/20261002000000_step4_trip_progress.sql` adds the trip progress columns and the `record_trip_step` and `report_breakdown` functions. It updates `my_trips()` and allows only notes as direct trip-event inserts.
+6. `supabase/seed.sql` adds the sample data: Koita and Kwali sand sites, four routes to Gwarinpa and Apo/Wuye with current prices, and a diesel price of ₦1,730/L. It is safe to run twice. It adds no customers, trucks or drivers. Delete the sample rows from the app once real data exists.
 
 If you use the Supabase CLI instead: `supabase link --project-ref <ref>`, then `supabase db push`, then run `seed.sql` in the SQL editor.
 
@@ -112,8 +121,10 @@ For a driver, after enabling access with the Driver role, open **Drivers**. Edit
 | Orders | create, cancel | create, cancel | read | — |
 | Record payment | yes | — | yes | — |
 | Dispatch (assign, reassign, cancel trips) | yes | yes | — | — |
+| Trip steps (loaded, in transit, delivered) | for the driver, with a reason | for the driver, with a reason | — | own trips |
+| Report a breakdown | yes | yes | — | — |
 | Users | manage | — | — | — |
-| Home | overview | overview | overview | own current trips and usual truck |
+| Home | overview | overview | overview | own trips, steps, done today, usual truck |
 
 The database enforces these rules with RLS and guard triggers. The UI only hides what a role can't do. The full matrix for orders, trips, payments and ledger, used in later steps, is in the migration file.
 
